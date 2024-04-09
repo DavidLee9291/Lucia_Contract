@@ -1,14 +1,19 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 use anchor_spl::associated_token::AssociatedToken;
-declare_id!("DzJ68fvNC6PNfZYQzjSNiyLxgcxHD3nkRGsBAjyGTWyd");
+use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
+declare_id!("9DbNUx3HadzjhvR4XANc4D9v2qwAK5Kd7k62QdfQsWcx");
 
 #[program]
 pub mod token_vesting {
 
     use super::*;
 
-    pub fn initialize(ctx: Context<Initialize>, beneficiaries: Vec<Beneficiary>, amount: u64, decimals: u8) -> Result<()> {
+    pub fn initialize(
+        ctx: Context<Initialize>,
+        beneficiaries: Vec<Beneficiary>,
+        amount: u64,
+        decimals: u8,
+    ) -> Result<()> {
         let data_account = &mut ctx.accounts.data_account;
         data_account.beneficiaries = beneficiaries;
         data_account.percent_available = 0;
@@ -29,12 +34,15 @@ pub mod token_vesting {
             transfer_instruction,
         );
 
-        token::transfer(cpi_ctx, data_account.token_amount * u64::pow(10, decimals as u32))?;
+        token::transfer(
+            cpi_ctx,
+            data_account.token_amount * u64::pow(10, decimals as u32),
+        )?;
 
         Ok(())
     }
 
-    pub fn release(ctx: Context<Release>, _data_bump: u8, percent: u8 ) -> Result<()> {
+    pub fn release(ctx: Context<Release>, _data_bump: u8, percent: u8) -> Result<()> {
         let data_account = &mut ctx.accounts.data_account;
 
         data_account.percent_available = percent;
@@ -51,31 +59,42 @@ pub mod token_vesting {
         let beneficiary_ata = &mut ctx.accounts.wallet_to_deposit_to;
         let decimals = data_account.decimals;
 
-        let (index, beneficiary) = beneficiaries.iter().enumerate().find(|(_, beneficiary)| beneficiary.key == *sender.to_account_info().key)
-        .ok_or(VestingError::BeneficiaryNotFound)?;
+        let (index, beneficiary) = beneficiaries
+            .iter()
+            .enumerate()
+            .find(|(_, beneficiary)| beneficiary.key == *sender.to_account_info().key)
+            .ok_or(VestingError::BeneficiaryNotFound)?;
 
-        let amount_to_transfer = ((data_account.percent_available as f32 / 100.0) * beneficiary.allocated_tokens as f32) as u64;
-        require!(amount_to_transfer > beneficiary.claimed_tokens, VestingError::ClaimNotAllowed); // Allowed to claim new tokens
+        let amount_to_transfer = ((data_account.percent_available as f32 / 100.0)
+            * beneficiary.allocated_tokens as f32) as u64;
+        require!(
+            amount_to_transfer > beneficiary.claimed_tokens,
+            VestingError::ClaimNotAllowed
+        ); // Allowed to claim new tokens
 
         // Transfer Logic:
-        let seeds = &["data_account".as_bytes(), token_mint_key.as_ref(), &[data_bump]];
+        let seeds = &[
+            "data_account".as_bytes(),
+            token_mint_key.as_ref(),
+            &[data_bump],
+        ];
         let signer_seeds = &[&seeds[..]];
 
-        let transfer_instruction = Transfer{
+        let transfer_instruction = Transfer {
             from: escrow_wallet.to_account_info(),
             to: beneficiary_ata.to_account_info(),
             authority: data_account.to_account_info(),
         };
-        
+
         let cpi_ctx = CpiContext::new_with_signer(
             token_program.to_account_info(),
             transfer_instruction,
-            signer_seeds
+            signer_seeds,
         );
 
         token::transfer(cpi_ctx, amount_to_transfer * u64::pow(10, decimals as u32))?;
         data_account.beneficiaries[index].claimed_tokens = amount_to_transfer;
-        
+
         Ok(())
     }
 }
@@ -112,9 +131,9 @@ pub struct Initialize<'info> {
 
     #[account(mut)]
     pub sender: Signer<'info>,
-    
+
     pub system_program: Program<'info, System>,
-    
+
     pub token_program: Program<'info, Token>,
 }
 
@@ -128,12 +147,12 @@ pub struct Release<'info> {
         constraint=data_account.initializer == sender.key() @ VestingError::InvalidSender
     )]
     pub data_account: Account<'info, DataAccount>,
-    
+
     pub token_mint: Account<'info, Mint>,
 
     #[account(mut)]
     pub sender: Signer<'info>,
-    
+
     pub system_program: Program<'info, System>,
 }
 
@@ -146,7 +165,7 @@ pub struct Claim<'info> {
         bump = data_bump,
     )]
     pub data_account: Account<'info, DataAccount>,
-    
+
     #[account(
         mut,
         seeds=[b"escrow_wallet".as_ref(), token_mint.key().as_ref()],
@@ -156,7 +175,7 @@ pub struct Claim<'info> {
 
     #[account(mut)]
     pub sender: Signer<'info>,
-    
+
     pub token_mint: Account<'info, Mint>,
 
     #[account(
@@ -168,9 +187,9 @@ pub struct Claim<'info> {
     pub wallet_to_deposit_to: Account<'info, TokenAccount>,
 
     pub associated_token_program: Program<'info, AssociatedToken>, // Don't actually use it in the instruction, but used for the wallet_to_deposit_to account
-    
+
     pub token_program: Program<'info, Token>,
-    
+
     pub system_program: Program<'info, System>,
 }
 
@@ -185,13 +204,13 @@ pub struct Beneficiary {
 #[derive(Default)]
 pub struct DataAccount {
     // Space in bytes: 8 + 1 + 8 + 32 + 32 + 32 + 1 + (4 + (100 * (32 + 8 + 8)))
-    pub percent_available: u8, // 1
-    pub token_amount: u64,     // 8
-    pub initializer: Pubkey,   // 32
-    pub escrow_wallet: Pubkey, // 32
-    pub token_mint: Pubkey,    // 32
+    pub percent_available: u8,           // 1
+    pub token_amount: u64,               // 8
+    pub initializer: Pubkey,             // 32
+    pub escrow_wallet: Pubkey,           // 32
+    pub token_mint: Pubkey,              // 32
     pub beneficiaries: Vec<Beneficiary>, // (4 + (n * (32 + 8 + 8)))
-    pub decimals: u8           // 1
+    pub decimals: u8,                    // 1
 }
 
 #[error_code]
@@ -201,5 +220,5 @@ pub enum VestingError {
     #[msg("Not allowed to claim new tokens currently")]
     ClaimNotAllowed,
     #[msg("Beneficiary does not exist in account")]
-    BeneficiaryNotFound
+    BeneficiaryNotFound,
 }
