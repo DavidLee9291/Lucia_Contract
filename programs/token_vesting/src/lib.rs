@@ -1,7 +1,8 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
-declare_id!("9DbNUx3HadzjhvR4XANc4D9v2qwAK5Kd7k62QdfQsWcx");
+
+declare_id!("HgMxXNufifvgYHQgeb2MsfUHTuDaqNEzY8D2GWqSZ8FN");
 
 #[program]
 pub mod token_vesting {
@@ -14,7 +15,7 @@ pub mod token_vesting {
         amount: u64,
         decimals: u8,
     ) -> Result<()> {
-        let data_account = &mut ctx.accounts.data_account;
+        let data_account: &mut Account<DataAccount> = &mut ctx.accounts.data_account;
         data_account.beneficiaries = beneficiaries;
         data_account.percent_available = 0;
         data_account.token_amount = amount;
@@ -23,13 +24,13 @@ pub mod token_vesting {
         data_account.escrow_wallet = ctx.accounts.escrow_wallet.to_account_info().key();
         data_account.token_mint = ctx.accounts.token_mint.to_account_info().key();
 
-        let transfer_instruction = Transfer {
+        let transfer_instruction: Transfer = Transfer {
             from: ctx.accounts.wallet_to_withdraw_from.to_account_info(),
             to: ctx.accounts.escrow_wallet.to_account_info(),
             authority: ctx.accounts.sender.to_account_info(),
         };
 
-        let cpi_ctx = CpiContext::new(
+        let cpi_ctx: CpiContext<Transfer> = CpiContext::new(
             ctx.accounts.token_program.to_account_info(),
             transfer_instruction,
         );
@@ -42,21 +43,23 @@ pub mod token_vesting {
         Ok(())
     }
 
-    pub fn release(ctx: Context<Release>, _data_bump: u8, percent: u8) -> Result<()> {
-        let data_account = &mut ctx.accounts.data_account;
+    //
+    pub fn release_lucia_vesting(ctx: Context<Release>, _data_bump: u8, percent: u8) -> Result<()> {
+        let data_account: &mut Account<DataAccount> = &mut ctx.accounts.data_account;
 
         data_account.percent_available = percent;
         Ok(())
     }
 
-    pub fn claim(ctx: Context<Claim>, data_bump: u8, _escrow_bump: u8) -> Result<()> {
-        let sender = &mut ctx.accounts.sender;
-        let escrow_wallet = &mut ctx.accounts.escrow_wallet;
-        let data_account = &mut ctx.accounts.data_account;
-        let beneficiaries = &data_account.beneficiaries;
-        let token_program = &mut ctx.accounts.token_program;
-        let token_mint_key = &mut ctx.accounts.token_mint.key();
-        let beneficiary_ata = &mut ctx.accounts.wallet_to_deposit_to;
+    // vesting 해제 청구기능
+    pub fn claim_lucia_token(ctx: Context<Claim>, data_bump: u8, _escrow_bump: u8) -> Result<()> {
+        let sender: &mut Signer = &mut ctx.accounts.sender;
+        let escrow_wallet: &mut Account<TokenAccount> = &mut ctx.accounts.escrow_wallet;
+        let data_account: &mut Account<DataAccount> = &mut ctx.accounts.data_account;
+        let beneficiaries: &Vec<Beneficiary> = &data_account.beneficiaries;
+        let token_program: &mut Program<Token> = &mut ctx.accounts.token_program;
+        let token_mint_key: &mut Pubkey = &mut ctx.accounts.token_mint.key();
+        let beneficiary_ata: &mut Account<TokenAccount> = &mut ctx.accounts.wallet_to_deposit_to;
         let decimals = data_account.decimals;
 
         let (index, beneficiary) = beneficiaries
@@ -74,7 +77,7 @@ pub mod token_vesting {
 
         // Transfer Logic:
         let seeds = &[
-            "data_account".as_bytes(),
+            "lucia_data_account".as_bytes(),
             token_mint_key.as_ref(),
             &[data_bump],
         ];
@@ -101,25 +104,27 @@ pub mod token_vesting {
 
 #[derive(Accounts)]
 pub struct Initialize<'info> {
+    // 데이터 저장 계정 생성 PDA
     #[account(
         init,
         payer = sender,
         space = 8 + 1 + 8 + 32 + 32 + 32 + 1 + (4 + 50 * (32 + 8 + 8) + 1), // Can take 50 accounts to vest to
-        seeds = [b"data_account", token_mint.key().as_ref()], 
+        seeds = [b"lucia_data_account", token_mint.key().as_ref()], 
         bump
     )]
     pub data_account: Account<'info, DataAccount>,
-
+    // 에스크로 지갑 PDA
     #[account(
         init,
         payer = sender,
-        seeds=[b"escrow_wallet".as_ref(), token_mint.key().as_ref()],
+        seeds=[b"lucia_escrow_wallet".as_ref(), token_mint.key().as_ref()],
         bump,
         token::mint=token_mint,
         token::authority=data_account,
     )]
     pub escrow_wallet: Account<'info, TokenAccount>,
 
+    // 출금 계정
     #[account(
         mut,
         constraint=wallet_to_withdraw_from.owner == sender.key(),
@@ -142,7 +147,7 @@ pub struct Initialize<'info> {
 pub struct Release<'info> {
     #[account(
         mut,
-        seeds = [b"data_account", token_mint.key().as_ref()], 
+        seeds = [b"lucia_data_account", token_mint.key().as_ref()], 
         bump = data_bump,
         constraint=data_account.initializer == sender.key() @ VestingError::InvalidSender
     )]
@@ -161,14 +166,14 @@ pub struct Release<'info> {
 pub struct Claim<'info> {
     #[account(
         mut,
-        seeds = [b"data_account", token_mint.key().as_ref()], 
+        seeds = [b"lucia_data_account", token_mint.key().as_ref()], 
         bump = data_bump,
     )]
     pub data_account: Account<'info, DataAccount>,
 
     #[account(
         mut,
-        seeds=[b"escrow_wallet".as_ref(), token_mint.key().as_ref()],
+        seeds=[b"lucia_escrow_wallet".as_ref(), token_mint.key().as_ref()],
         bump = wallet_bump,
     )]
     pub escrow_wallet: Account<'info, TokenAccount>,
