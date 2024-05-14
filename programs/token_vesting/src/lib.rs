@@ -7,6 +7,8 @@ declare_id!("HgMxXNufifvgYHQgeb2MsfUHTuDaqNEzY8D2GWqSZ8FN");
 #[program]
 pub mod token_vesting {
 
+    use std::time::{SystemTime, UNIX_EPOCH};
+
     use super::*;
 
     pub fn initialize(
@@ -14,6 +16,7 @@ pub mod token_vesting {
         beneficiaries: Vec<Beneficiary>,
         amount: u64,
         decimals: u8,
+        lockup_period: u64,
     ) -> Result<()> {
         let data_account: &mut Account<DataAccount> = &mut ctx.accounts.data_account;
         data_account.beneficiaries = beneficiaries;
@@ -23,6 +26,15 @@ pub mod token_vesting {
         data_account.initializer = ctx.accounts.sender.to_account_info().key();
         data_account.escrow_wallet = ctx.accounts.escrow_wallet.to_account_info().key();
         data_account.token_mint = ctx.accounts.token_mint.to_account_info().key();
+        data_account.lockup_period = lockup_period;
+
+        // Calculate lockup expiration timestamp
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let lockup_expiration = now + lockup_period;
+        data_account.lockup_expiration = lockup_expiration as i64;
 
         let transfer_instruction: Transfer = Transfer {
             from: ctx.accounts.wallet_to_withdraw_from.to_account_info(),
@@ -46,7 +58,13 @@ pub mod token_vesting {
     //
     pub fn release_lucia_vesting(ctx: Context<Release>, _data_bump: u8, percent: u8) -> Result<()> {
         let data_account: &mut Account<DataAccount> = &mut ctx.accounts.data_account;
+        // lockup 종료 확인
+        let current_time = Clock::get()?.unix_timestamp;
+        if current_time < data_account.lockup_expiration {
+            return Err(LockupErrorCode::LockupPeriodNotOver.into()); // lockup이 종료되지 않았으므로 에러 반환
+        }
 
+        // lockup 종료되었으므로 릴리즈 수행
         data_account.percent_available = percent;
         Ok(())
     }
@@ -108,7 +126,7 @@ pub struct Initialize<'info> {
     #[account(
         init,
         payer = sender,
-        space = 8 + 1 + 8 + 32 + 32 + 32 + 1 + (4 + 50 * (32 + 8 + 8) + 1), // Can take 50 accounts to vest to
+        space = 8 + 1 + 8 + 32 + 32 + 32 + 1 + 8 + 8 + (4 + 50 * (32 + 8 + 8) + 1), // Can take 50 accounts to vest to
         seeds = [b"lucia_data_account", token_mint.key().as_ref()], 
         bump
     )]
@@ -216,6 +234,8 @@ pub struct DataAccount {
     pub token_mint: Pubkey,              // 32
     pub beneficiaries: Vec<Beneficiary>, // (4 + (n * (32 + 8 + 8)))
     pub decimals: u8,                    // 1
+    pub lockup_period: u64,              // 8 Lockup period in seconds
+    pub lockup_expiration: i64,          // 8 Timestamp when lockup expires
 }
 
 #[error_code]
@@ -226,4 +246,12 @@ pub enum VestingError {
     ClaimNotAllowed,
     #[msg("Beneficiary does not exist in account")]
     BeneficiaryNotFound,
+}
+
+#[error_code]
+pub enum LockupErrorCode {
+    #[msg("Lockup period not over")]
+    LockupPeriodNotOver,
+    #[msg("Lockup not active")]
+    LockupNotActive,
 }
