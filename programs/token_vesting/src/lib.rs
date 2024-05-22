@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
-declare_id!("HgMxXNufifvgYHQgeb2MsfUHTuDaqNEzY8D2GWqSZ8FN");
+declare_id!("9Dhjm9BJaSvbTZ1hvmriwvBboCB6NksU1CWDkwfaDRQi");
 
 #[program]
 pub mod token_vesting {
@@ -16,7 +16,6 @@ pub mod token_vesting {
         beneficiaries: Vec<Beneficiary>,
         amount: u64,
         decimals: u8,
-        lockup_period: u64,
     ) -> Result<()> {
         let data_account: &mut Account<DataAccount> = &mut ctx.accounts.data_account;
         data_account.beneficiaries = beneficiaries;
@@ -26,15 +25,6 @@ pub mod token_vesting {
         data_account.initializer = ctx.accounts.sender.to_account_info().key();
         data_account.escrow_wallet = ctx.accounts.escrow_wallet.to_account_info().key();
         data_account.token_mint = ctx.accounts.token_mint.to_account_info().key();
-        data_account.lockup_period = lockup_period;
-
-        // Calculate lockup expiration timestamp
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        let lockup_expiration = now + lockup_period;
-        data_account.lockup_expiration = lockup_expiration as i64;
 
         let transfer_instruction: Transfer = Transfer {
             from: ctx.accounts.wallet_to_withdraw_from.to_account_info(),
@@ -55,7 +45,6 @@ pub mod token_vesting {
         Ok(())
     }
 
-    //
     pub fn release_lucia_vesting(ctx: Context<Release>, _data_bump: u8, percent: u8) -> Result<()> {
         let data_account: &mut Account<DataAccount> = &mut ctx.accounts.data_account;
         // lockup 종료 확인
