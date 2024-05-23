@@ -2,12 +2,10 @@ use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
-declare_id!("9Dhjm9BJaSvbTZ1hvmriwvBboCB6NksU1CWDkwfaDRQi");
+declare_id!("44ZriPRUGo6sTf3KwpGz36FQhuMkvP4sFXkycfccr2LV");
 
 #[program]
 pub mod token_vesting {
-
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
 
@@ -16,8 +14,17 @@ pub mod token_vesting {
         beneficiaries: Vec<Beneficiary>,
         amount: u64,
         decimals: u8,
+        lockup_period: u64,
     ) -> Result<()> {
         let data_account: &mut Account<DataAccount> = &mut ctx.accounts.data_account;
+
+        msg!(
+            "Initializing data account with amount: {}, decimals: {}, lockup_duration: {}",
+            amount,
+            decimals,
+            lockup_period
+        );
+
         data_account.beneficiaries = beneficiaries;
         data_account.percent_available = 0;
         data_account.token_amount = amount;
@@ -25,6 +32,12 @@ pub mod token_vesting {
         data_account.initializer = ctx.accounts.sender.to_account_info().key();
         data_account.escrow_wallet = ctx.accounts.escrow_wallet.to_account_info().key();
         data_account.token_mint = ctx.accounts.token_mint.to_account_info().key();
+        data_account.lockup_end_time = Clock::get()?.unix_timestamp + lockup_period as i64; // lockup 종료 시간 설정
+
+        msg!(
+            "Data account initialized with lockup end time: {}",
+            data_account.lockup_end_time
+        );
 
         let transfer_instruction: Transfer = Transfer {
             from: ctx.accounts.wallet_to_withdraw_from.to_account_info(),
@@ -42,18 +55,21 @@ pub mod token_vesting {
             data_account.token_amount * u64::pow(10, decimals as u32),
         )?;
 
+        msg!("Token transfer completed");
+
         Ok(())
     }
 
+    //
     pub fn release_lucia_vesting(ctx: Context<Release>, _data_bump: u8, percent: u8) -> Result<()> {
         let data_account: &mut Account<DataAccount> = &mut ctx.accounts.data_account;
-        // lockup 종료 확인
-        let current_time = Clock::get()?.unix_timestamp;
-        if current_time < data_account.lockup_expiration {
-            return Err(LockupErrorCode::LockupPeriodNotOver.into()); // lockup이 종료되지 않았으므로 에러 반환
-        }
 
-        // lockup 종료되었으므로 릴리즈 수행
+        // lockup 기간이 종료되었는지 확인
+        require!(
+            Clock::get()?.unix_timestamp >= data_account.lockup_end_time,
+            CustomError::LockupNotExpired
+        );
+
         data_account.percent_available = percent;
         Ok(())
     }
@@ -75,8 +91,8 @@ pub mod token_vesting {
             .find(|(_, beneficiary)| beneficiary.key == *sender.to_account_info().key)
             .ok_or(VestingError::BeneficiaryNotFound)?;
 
-        let amount_to_transfer = ((data_account.percent_available as f32 / 100.0)
-            * beneficiary.allocated_tokens as f32) as u64;
+        let amount_to_transfer = (((data_account.percent_available as f32) / 100.0)
+            * (beneficiary.allocated_tokens as f32)) as u64;
         require!(
             amount_to_transfer > beneficiary.claimed_tokens,
             VestingError::ClaimNotAllowed
@@ -115,8 +131,8 @@ pub struct Initialize<'info> {
     #[account(
         init,
         payer = sender,
-        space = 8 + 1 + 8 + 32 + 32 + 32 + 1 + 8 + 8 + (4 + 50 * (32 + 8 + 8) + 1), // Can take 50 accounts to vest to
-        seeds = [b"lucia_data_account", token_mint.key().as_ref()], 
+        space = 8 + 1 + 8 + 32 + 32 + 32 + 1 + 8 + (4 + 50 * (32 + 8 + 8) + 1), // Can take 50 accounts to vest to
+        seeds = [b"lucia_data_account", token_mint.key().as_ref()],
         bump
     )]
     pub data_account: Account<'info, DataAccount>,
@@ -124,10 +140,10 @@ pub struct Initialize<'info> {
     #[account(
         init,
         payer = sender,
-        seeds=[b"lucia_escrow_wallet".as_ref(), token_mint.key().as_ref()],
+        seeds = [b"lucia_escrow_wallet".as_ref(), token_mint.key().as_ref()],
         bump,
-        token::mint=token_mint,
-        token::authority=data_account,
+        token::mint = token_mint,
+        token::authority = data_account
     )]
     pub escrow_wallet: Account<'info, TokenAccount>,
 
@@ -194,7 +210,7 @@ pub struct Claim<'info> {
         init_if_needed,
         payer = sender,
         associated_token::mint = token_mint,
-        associated_token::authority = sender,
+        associated_token::authority = sender
     )]
     pub wallet_to_deposit_to: Account<'info, TokenAccount>,
 
@@ -223,8 +239,7 @@ pub struct DataAccount {
     pub token_mint: Pubkey,              // 32
     pub beneficiaries: Vec<Beneficiary>, // (4 + (n * (32 + 8 + 8)))
     pub decimals: u8,                    // 1
-    pub lockup_period: u64,              // 8 Lockup period in seconds
-    pub lockup_expiration: i64,          // 8 Timestamp when lockup expires
+    pub lockup_end_time: i64,            // 8
 }
 
 #[error_code]
@@ -238,9 +253,7 @@ pub enum VestingError {
 }
 
 #[error_code]
-pub enum LockupErrorCode {
-    #[msg("Lockup period not over")]
-    LockupPeriodNotOver,
-    #[msg("Lockup not active")]
-    LockupNotActive,
+pub enum CustomError {
+    #[msg("Lockup period has not expired yet.")]
+    LockupNotExpired,
 }

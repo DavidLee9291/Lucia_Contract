@@ -5,7 +5,7 @@ seeds = false
 skip-lint = false
 
 [programs.localnet]
-token_vesting = "9Dhjm9BJaSvbTZ1hvmriwvBboCB6NksU1CWDkwfaDRQi"
+token_vesting = "44ZriPRUGo6sTf3KwpGz36FQhuMkvP4sFXkycfccr2LV"
 
 [registry]
 url = "https://api.apr.dev"
