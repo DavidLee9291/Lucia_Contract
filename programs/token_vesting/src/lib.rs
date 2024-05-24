@@ -64,12 +64,6 @@ pub mod token_vesting {
     pub fn release_lucia_vesting(ctx: Context<Release>, _data_bump: u8, percent: u8) -> Result<()> {
         let data_account: &mut Account<DataAccount> = &mut ctx.accounts.data_account;
 
-        // lockup 기간이 종료되었는지 확인
-        require!(
-            Clock::get()?.unix_timestamp >= data_account.lockup_end_time,
-            CustomError::LockupNotExpired
-        );
-
         data_account.percent_available = percent;
         Ok(())
     }
@@ -85,6 +79,12 @@ pub mod token_vesting {
         let beneficiary_ata: &mut Account<TokenAccount> = &mut ctx.accounts.wallet_to_deposit_to;
         let decimals = data_account.decimals;
 
+        // lockup 기간이 종료되었는지 확인
+        require!(
+            Clock::get()?.unix_timestamp >= data_account.lockup_end_time,
+            CustomError::LockupNotExpired
+        );
+
         let (index, beneficiary) = beneficiaries
             .iter()
             .enumerate()
@@ -93,6 +93,7 @@ pub mod token_vesting {
 
         let amount_to_transfer = (((data_account.percent_available as f32) / 100.0)
             * (beneficiary.allocated_tokens as f32)) as u64;
+
         require!(
             amount_to_transfer > beneficiary.claimed_tokens,
             VestingError::ClaimNotAllowed

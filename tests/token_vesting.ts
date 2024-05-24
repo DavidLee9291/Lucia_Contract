@@ -34,7 +34,7 @@ describe("token_vesting", () => {
   let _dataAccountAfterInit, _dataAccountAfterRelease, _dataAccountAfterClaim; // Used to store State between tests
 
   before(async () => {
-    lockupPeriod = new anchor.BN(0);
+    lockupPeriod = new anchor.BN(3600 * 24 * 365 * 3);
     decimals = 6;
     mintAddress = await createMint(provider, decimals);
     [sender, senderATA] = await createUserAndATA(provider, mintAddress);
@@ -86,7 +86,7 @@ describe("token_vesting", () => {
     assert.ok(accountAfterInit.lockupEndTime.toNumber() > 0);
     console.log(
       "Lockup end time:",
-      new Date(accountAfterInit.lockupEndTime.toNumber() * 1000)
+      new Date(accountAfterInit.lockupEndTime.toNumber() * 1001.95)
     );
 
     console.log(
@@ -148,86 +148,86 @@ describe("token_vesting", () => {
     _dataAccountAfterRelease = dataAccount;
   });
 
-  // it("Test Claim", async () => {
-  //   // Send initialize transaction
-  //   dataAccount = _dataAccountAfterRelease;
+  it("Test Claim", async () => {
+    // Send initialize transaction
+    dataAccount = _dataAccountAfterRelease;
 
-  //   const claimTx = await program.methods
-  //     .claimLuciaToken(dataBump, escrowBump)
-  //     .accounts({
-  //       dataAccount: dataAccount,
-  //       escrowWallet: escrowWallet,
-  //       sender: beneficiary.publicKey,
-  //       tokenMint: mintAddress,
-  //       walletToDepositTo: beneficiaryATA,
-  //       associatedTokenProgram: spl.ASSOCIATED_TOKEN_PROGRAM_ID,
-  //       tokenProgram: spl.TOKEN_PROGRAM_ID,
-  //       systemProgram: anchor.web3.SystemProgram.programId,
-  //     })
-  //     .signers([beneficiary])
-  //     .rpc();
-  //   console.log(
-  //     `claim TX: https://explorer.solana.com/tx/${claimTx}?cluster=custom`,
-  //   );
+    const claimTx = await program.methods
+      .claimLuciaToken(dataBump, escrowBump)
+      .accounts({
+        dataAccount: dataAccount,
+        escrowWallet: escrowWallet,
+        sender: beneficiary.publicKey,
+        tokenMint: mintAddress,
+        walletToDepositTo: beneficiaryATA,
+        associatedTokenProgram: spl.ASSOCIATED_TOKEN_PROGRAM_ID,
+        tokenProgram: spl.TOKEN_PROGRAM_ID,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .signers([beneficiary])
+      .rpc();
+    console.log(
+      `claim TX: https://explorer.solana.com/tx/${claimTx}?cluster=custom`
+    );
 
-  //   assert.equal(await getTokenBalanceWeb3(beneficiaryATA, provider), 60); // Claim releases 43% of 100 tokens into beneficiary's account
-  //   assert.equal(await getTokenBalanceWeb3(escrowWallet, provider), 940);
+    assert.equal(await getTokenBalanceWeb3(beneficiaryATA, provider), 60); // Claim releases 43% of 100 tokens into beneficiary's account
+    assert.equal(await getTokenBalanceWeb3(escrowWallet, provider), 940);
 
-  //   _dataAccountAfterClaim = dataAccount;
-  // });
+    _dataAccountAfterClaim = dataAccount;
+  });
 
-  // it("Test Double Claim (Should Fail)", async () => {
-  //   dataAccount = _dataAccountAfterClaim;
-  //   try {
-  //     // Should fail
-  //     const doubleClaimTx = await program.methods
-  //       .claimLuciaToken(dataBump, escrowBump)
-  //       .accounts({
-  //         dataAccount: dataAccount,
-  //         escrowWallet: escrowWallet,
-  //         sender: beneficiary.publicKey,
-  //         tokenMint: mintAddress,
-  //         walletToDepositTo: beneficiaryATA,
-  //         associatedTokenProgram: spl.ASSOCIATED_TOKEN_PROGRAM_ID,
-  //         tokenProgram: spl.TOKEN_PROGRAM_ID,
-  //         systemProgram: anchor.web3.SystemProgram.programId,
-  //       })
-  //       .signers([beneficiary])
-  //       .rpc();
-  //     assert.ok(false, "Error was supposed to be thrown");
-  //   } catch (err) {
-  //     assert.equal(err instanceof AnchorError, true);
-  //     assert.equal(err.error.errorCode.code, "ClaimNotAllowed");
-  //     assert.equal(await getTokenBalanceWeb3(beneficiaryATA, provider), 60);
-  //     // Check that error is thrown, that it's the ClaimNotAllowed error, and that the beneficiary's balance has not changed
-  //   }
-  // });
-  // it("Test Beneficiary Not Found (Should Fail)", async () => {
-  //   dataAccount = _dataAccountAfterClaim;
-  //   try {
-  //     // const falseBeneficiary = anchor.web3.Keypair.generate();
-  //     const [falseBeneficiary, falseBeneficiaryATA] = await createUserAndATA(
-  //       provider,
-  //       mintAddress,
-  //     );
+  it("Test Double Claim (Should Fail)", async () => {
+    dataAccount = _dataAccountAfterClaim;
+    try {
+      // Should fail
+      const doubleClaimTx = await program.methods
+        .claimLuciaToken(dataBump, escrowBump)
+        .accounts({
+          dataAccount: dataAccount,
+          escrowWallet: escrowWallet,
+          sender: beneficiary.publicKey,
+          tokenMint: mintAddress,
+          walletToDepositTo: beneficiaryATA,
+          associatedTokenProgram: spl.ASSOCIATED_TOKEN_PROGRAM_ID,
+          tokenProgram: spl.TOKEN_PROGRAM_ID,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .signers([beneficiary])
+        .rpc();
+      assert.ok(false, "Error was supposed to be thrown");
+    } catch (err) {
+      assert.equal(err instanceof AnchorError, true);
+      assert.equal(err.error.errorCode.code, "ClaimNotAllowed");
+      assert.equal(await getTokenBalanceWeb3(beneficiaryATA, provider), 60);
+      // Check that error is thrown, that it's the ClaimNotAllowed error, and that the beneficiary's balance has not changed
+    }
+  });
+  it("Test Beneficiary Not Found (Should Fail)", async () => {
+    dataAccount = _dataAccountAfterClaim;
+    try {
+      // const falseBeneficiary = anchor.web3.Keypair.generate();
+      const [falseBeneficiary, falseBeneficiaryATA] = await createUserAndATA(
+        provider,
+        mintAddress
+      );
 
-  //     const benNotFound = await program.methods
-  //       .claimLuciaToken(dataBump, escrowBump)
-  //       .accounts({
-  //         dataAccount: dataAccount,
-  //         escrowWallet: escrowWallet,
-  //         sender: falseBeneficiary.publicKey,
-  //         tokenMint: mintAddress,
-  //         walletToDepositTo: falseBeneficiaryATA,
-  //         associatedTokenProgram: spl.ASSOCIATED_TOKEN_PROGRAM_ID,
-  //         tokenProgram: spl.TOKEN_PROGRAM_ID,
-  //         systemProgram: anchor.web3.SystemProgram.programId,
-  //       })
-  //       .signers([falseBeneficiary])
-  //       .rpc();
-  //   } catch (err) {
-  //     assert.equal(err instanceof AnchorError, true);
-  //     assert.equal(err.error.errorCode.code, "BeneficiaryNotFound");
-  //   }
-  // });
+      const benNotFound = await program.methods
+        .claimLuciaToken(dataBump, escrowBump)
+        .accounts({
+          dataAccount: dataAccount,
+          escrowWallet: escrowWallet,
+          sender: falseBeneficiary.publicKey,
+          tokenMint: mintAddress,
+          walletToDepositTo: falseBeneficiaryATA,
+          associatedTokenProgram: spl.ASSOCIATED_TOKEN_PROGRAM_ID,
+          tokenProgram: spl.TOKEN_PROGRAM_ID,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .signers([falseBeneficiary])
+        .rpc();
+    } catch (err) {
+      assert.equal(err instanceof AnchorError, true);
+      assert.equal(err.error.errorCode.code, "BeneficiaryNotFound");
+    }
+  });
 });
