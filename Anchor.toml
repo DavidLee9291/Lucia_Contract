@@ -11,7 +11,10 @@ token_vesting = "44ZriPRUGo6sTf3KwpGz36FQhuMkvP4sFXkycfccr2LV"
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "http://localhost:8899"
+# local
+# cluster = "http://localhost:8899"
+# dev
+cluster = "https://api.devnet.solana.com"
 wallet = "/home/david/.config/solana/id.json"
 
 [scripts]
