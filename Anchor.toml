@@ -5,16 +5,16 @@ seeds = false
 skip-lint = false
 
 [programs.localnet]
-token_vesting = "44ZriPRUGo6sTf3KwpGz36FQhuMkvP4sFXkycfccr2LV"
+token_vesting = "HWaGc49AZC3Aim9M1VBFAhgLdmw9Xp7T7QF4K9kgpuLh"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
 # local
-# cluster = "http://localhost:8899"
+cluster = "http://localhost:8899"
 # dev
-cluster = "https://api.devnet.solana.com"
+# cluster = "https://api.devnet.solana.com"
 wallet = "/home/david/.config/solana/id.json"
 
 [scripts]

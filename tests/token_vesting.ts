@@ -34,7 +34,7 @@ describe("token_vesting", () => {
   let _dataAccountAfterInit, _dataAccountAfterRelease, _dataAccountAfterClaim; // Used to store State between tests
 
   before(async () => {
-    lockupPeriod = new anchor.BN(3600 * 24 * 365 * 3);
+    lockupPeriod = new anchor.BN(0);
     decimals = 6;
     mintAddress = await createMint(provider, decimals);
     [sender, senderATA] = await createUserAndATA(provider, mintAddress);
@@ -60,7 +60,7 @@ describe("token_vesting", () => {
     beneficiaryArray = [
       {
         key: beneficiary.publicKey,
-        allocatedTokens: new anchor.BN(100),
+        allocatedTokens: new anchor.BN(1000),
         claimedTokens: new anchor.BN(0),
       },
     ];
@@ -86,7 +86,7 @@ describe("token_vesting", () => {
     assert.ok(accountAfterInit.lockupEndTime.toNumber() > 0);
     console.log(
       "Lockup end time:",
-      new Date(accountAfterInit.lockupEndTime.toNumber() * 1001.95)
+      new Date(accountAfterInit.lockupEndTime.toNumber() * 1000)
     );
 
     console.log(
@@ -94,7 +94,7 @@ describe("token_vesting", () => {
     );
 
     assert.equal(await getTokenBalanceWeb3(escrowWallet, provider), 1000); // Escrow account receives balance of token
-    assert.equal(accountAfterInit.beneficiaries[0].allocatedTokens, 100); // Tests allocatedTokens field
+    assert.equal(accountAfterInit.beneficiaries[0].allocatedTokens, 1000); // Tests allocatedTokens field
 
     _dataAccountAfterInit = dataAccount;
   });
@@ -105,7 +105,7 @@ describe("token_vesting", () => {
     const falseSender = anchor.web3.Keypair.generate();
     try {
       const releaseTx = await program.methods
-        .releaseLuciaVesting(dataBump, 60)
+        .releaseLuciaVesting(dataBump, 100, 10.0, 10.0)
         .accounts({
           dataAccount: dataAccount,
           sender: falseSender.publicKey,
@@ -126,7 +126,7 @@ describe("token_vesting", () => {
     dataAccount = _dataAccountAfterInit;
 
     const releaseTx = await program.methods
-      .releaseLuciaVesting(dataBump, 60)
+      .releaseLuciaVesting(dataBump, 100, 10.0, 10.0)
       .accounts({
         dataAccount: dataAccount,
         sender: sender.publicKey,
@@ -143,9 +143,96 @@ describe("token_vesting", () => {
       `release TX: https://explorer.solana.com/tx/${releaseTx}?cluster=custom`
     );
 
-    assert.equal(accountAfterRelease.percentAvailable, 60); // Percent Available updated correctly
+    assert.equal(accountAfterRelease.percentAvailable, 100); // Percent Available updated correctly
+    assert.equal(accountAfterRelease.baseClaimPercentage, 10.0); // 기본 비율 확인
+    assert.equal(accountAfterRelease.initialBonusPercentage, 10.0); // 첫 번째 달 추가 비율 확인
 
     _dataAccountAfterRelease = dataAccount;
+  });
+
+  it("Test First Month Claim", async () => {
+    dataAccount = _dataAccountAfterRelease;
+
+    // Set up a mock time to simulate the first month after lockup end
+    const lockupEndTime =
+      Math.floor(Date.now() / 1000) - 3 * 365 * 24 * 60 * 60; // 3 years ago
+    const firstMonthTime = new anchor.BN(lockupEndTime).add(
+      new anchor.BN(3 * 365 * 24 * 60 * 60 + 30 * 24 * 60 * 60)
+    ); // 3 years and 30 days later
+
+    // Simulate time check for the first month
+    const currentTime = new anchor.BN(Math.floor(Date.now() / 1000));
+    if (currentTime.lt(firstMonthTime)) {
+      throw new Error(
+        "Current time is not within the first month after lockup end"
+      );
+    }
+
+    const claimTx = await program.methods
+      .claimLuciaToken(dataBump, escrowBump)
+      .accounts({
+        dataAccount: dataAccount,
+        escrowWallet: escrowWallet,
+        sender: beneficiary.publicKey,
+        tokenMint: mintAddress,
+        walletToDepositTo: beneficiaryATA,
+        associatedTokenProgram: spl.ASSOCIATED_TOKEN_PROGRAM_ID,
+        tokenProgram: spl.TOKEN_PROGRAM_ID,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .signers([beneficiary])
+      .rpc();
+    console.log(
+      `claim TX: https://explorer.solana.com/tx/${claimTx}?cluster=custom`
+    );
+
+    assert.equal(await getTokenBalanceWeb3(beneficiaryATA, provider), 100); // 예시: 첫 번째 달 클레임 후 잔액 확인
+    assert.equal(await getTokenBalanceWeb3(escrowWallet, provider), 900); // 예시: 첫 번째 달 클레임 후 에스크로 잔액 확인
+
+    _dataAccountAfterClaim = dataAccount;
+  });
+
+  it("Test Second Month Claim", async () => {
+    dataAccount = _dataAccountAfterClaim;
+
+    // Set up a mock time to simulate the first month after lockup end
+    const lockupEndTime =
+      Math.floor(Date.now() / 1000) - 3 * 365 * 24 * 60 * 60; // 3 years ago
+    const secondMonthTime = new anchor.BN(lockupEndTime).add(
+      new anchor.BN(3 * 365 * 24 * 60 * 60 + 60 * 24 * 60 * 60)
+    ); // 3 years and 30 days later
+
+    // Simulate time check for the first month
+    const currentTime = new anchor.BN(Math.floor(Date.now() / 1000));
+    if (currentTime.lt(secondMonthTime)) {
+      throw new Error(
+        "Current time is not within the first month after lockup end"
+      );
+    }
+
+    const claimTx = await program.methods
+      .claimLuciaToken(dataBump, escrowBump)
+      .accounts({
+        dataAccount: dataAccount,
+        escrowWallet: escrowWallet,
+        sender: beneficiary.publicKey,
+        tokenMint: mintAddress,
+        walletToDepositTo: beneficiaryATA,
+        associatedTokenProgram: spl.ASSOCIATED_TOKEN_PROGRAM_ID,
+        tokenProgram: spl.TOKEN_PROGRAM_ID,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .signers([beneficiary])
+      .rpc();
+    console.log(
+      `claim TX: https://explorer.solana.com/tx/${claimTx}?cluster=custom`
+    );
+
+    console.log();
+    assert.equal(await getTokenBalanceWeb3(beneficiaryATA, provider), 100); // 예시: 두 번째 달 클레임 후 잔액 확인
+    assert.equal(await getTokenBalanceWeb3(escrowWallet, provider), 900); // 예시: 두 번째 달 클레임 후 에스크로 잔액 확인
+
+    _dataAccountAfterClaim = dataAccount;
   });
 
   it("Test Claim", async () => {
@@ -170,8 +257,8 @@ describe("token_vesting", () => {
       `claim TX: https://explorer.solana.com/tx/${claimTx}?cluster=custom`
     );
 
-    assert.equal(await getTokenBalanceWeb3(beneficiaryATA, provider), 60); // Claim releases 43% of 100 tokens into beneficiary's account
-    assert.equal(await getTokenBalanceWeb3(escrowWallet, provider), 940);
+    assert.equal(await getTokenBalanceWeb3(beneficiaryATA, provider), 100); // Claim releases 43% of 100 tokens into beneficiary's account
+    assert.equal(await getTokenBalanceWeb3(escrowWallet, provider), 900);
 
     _dataAccountAfterClaim = dataAccount;
   });
@@ -198,10 +285,11 @@ describe("token_vesting", () => {
     } catch (err) {
       assert.equal(err instanceof AnchorError, true);
       assert.equal(err.error.errorCode.code, "ClaimNotAllowed");
-      assert.equal(await getTokenBalanceWeb3(beneficiaryATA, provider), 60);
+      assert.equal(await getTokenBalanceWeb3(beneficiaryATA, provider), 100);
       // Check that error is thrown, that it's the ClaimNotAllowed error, and that the beneficiary's balance has not changed
     }
   });
+
   it("Test Beneficiary Not Found (Should Fail)", async () => {
     dataAccount = _dataAccountAfterClaim;
     try {
