@@ -6,6 +6,8 @@ target
 node_modules
 test-ledger
 .yarn
+.history
+.trunk
 Anchor.toml
 id2.json
 id3.json

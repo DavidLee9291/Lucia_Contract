@@ -100,8 +100,8 @@ export const fundATA = async (
       mint,
       userATA,
       provider.wallet.publicKey,
-      2000 * 10 ** decimals,
-      // 2000000000,
+      1000000000 * 10 ** decimals,
+      // 1000000000,
       [],
       spl.TOKEN_PROGRAM_ID
     )
