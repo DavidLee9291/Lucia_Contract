@@ -14,15 +14,13 @@ pub mod token_vesting {
         beneficiaries: Vec<Beneficiary>,
         amount: u64,
         decimals: u8,
-        lockup_period: u64,
     ) -> Result<()> {
         let data_account: &mut Account<DataAccount> = &mut ctx.accounts.data_account;
 
         msg!(
-            "Initializing data account with amount: {}, decimals: {}, lockup_duration: {}",
+            "Initializing data account with amount: {}, decimals: {}",
             amount,
             decimals,
-            lockup_period
         );
 
         data_account.beneficiaries = beneficiaries;
@@ -32,12 +30,6 @@ pub mod token_vesting {
         data_account.initializer = ctx.accounts.sender.to_account_info().key();
         data_account.escrow_wallet = ctx.accounts.escrow_wallet.to_account_info().key();
         data_account.token_mint = ctx.accounts.token_mint.to_account_info().key();
-        data_account.lockup_end_time = Clock::get()?.unix_timestamp + lockup_period as i64; // lockup 종료 시간 설정
-
-        msg!(
-            "Data account initialized with lockup end time: {}",
-            data_account.lockup_end_time
-        );
 
         let transfer_instruction: Transfer = Transfer {
             from: ctx.accounts.wallet_to_withdraw_from.to_account_info(),
@@ -61,22 +53,14 @@ pub mod token_vesting {
     }
 
     //
-    pub fn release_lucia_vesting(
-        ctx: Context<Release>,
-        _data_bump: u8,
-        percent: u8,
-        base_claim_percentage: f32,
-        initial_bonus_percentage: f32,
-    ) -> Result<()> {
+    pub fn release_lucia_vesting(ctx: Context<Release>, _data_bump: u8, percent: u8) -> Result<()> {
         let data_account: &mut Account<DataAccount> = &mut ctx.accounts.data_account;
 
         data_account.percent_available = percent;
-        data_account.base_claim_percentage = base_claim_percentage;
-        data_account.initial_bonus_percentage = initial_bonus_percentage;
         Ok(())
     }
 
-    pub fn claim_lucia_token(ctx: Context<Claim>, data_bump: u8, _escrow_bump: u8) -> Result<()> {
+    pub fn claim_lux_token(ctx: Context<Claim>, data_bump: u8, _escrow_bump: u8) -> Result<()> {
         let sender: &Signer = &ctx.accounts.sender;
         let escrow_wallet: &Account<TokenAccount> = &ctx.accounts.escrow_wallet;
         let data_account: &mut Account<DataAccount> = &mut ctx.accounts.data_account;
@@ -85,15 +69,7 @@ pub mod token_vesting {
         let token_mint_key: &Pubkey = &ctx.accounts.token_mint.key();
         let beneficiary_ata: &Account<TokenAccount> = &ctx.accounts.wallet_to_deposit_to;
         let decimals = data_account.decimals;
-
-        // Get the current time
         let current_time = Clock::get()?.unix_timestamp;
-
-        // Check if the lockup period has ended
-        require!(
-            current_time >= data_account.lockup_end_time,
-            VestingError::LockupNotExpired
-        );
 
         let (index, beneficiary) = beneficiaries
             .iter()
@@ -101,12 +77,16 @@ pub mod token_vesting {
             .find(|(_, beneficiary)| beneficiary.key == *sender.to_account_info().key)
             .ok_or(VestingError::BeneficiaryNotFound)?;
 
-        let lockup_end_time = data_account.lockup_end_time;
+        let lockup_end_time = beneficiary.lockup_period;
+
+        require!(
+            current_time >= lockup_end_time,
+            VestingError::LockupNotExpired
+        );
+
         let time_since_lockup_end = current_time - lockup_end_time;
 
-        // Basic claim percentage and initial bonus percentage
-        let base_claim_percentage = data_account.base_claim_percentage;
-        let initial_bonus_percentage = data_account.initial_bonus_percentage;
+        let initial_bonus_percentage = beneficiary.initial_bonus_percentage;
 
         // Calculate the claimable percentage
         let claimable_percentage = if time_since_lockup_end < 30 * 24 * 60 * 60 {
@@ -250,9 +230,11 @@ pub struct Claim<'info> {
 
 #[derive(Default, Copy, Clone, AnchorSerialize, AnchorDeserialize)]
 pub struct Beneficiary {
-    pub key: Pubkey,           // 32
-    pub allocated_tokens: u64, // 8
-    pub claimed_tokens: u64,   // 8
+    pub key: Pubkey,                   // 32
+    pub allocated_tokens: u64,         // 8
+    pub claimed_tokens: u64,           // 8
+    pub lockup_period: i64,            // 8
+    pub initial_bonus_percentage: f32, // 8
 }
 
 #[account]
@@ -264,11 +246,8 @@ pub struct DataAccount {
     pub initializer: Pubkey,             // 32
     pub escrow_wallet: Pubkey,           // 32
     pub token_mint: Pubkey,              // 32
-    pub beneficiaries: Vec<Beneficiary>, // (4 + (n * (32 + 8 + 8)))
+    pub beneficiaries: Vec<Beneficiary>, // (4 + (n * (32 + 8 + 8 + 8 + 8)))
     pub decimals: u8,                    // 1
-    pub lockup_end_time: i64,            // 8
-    pub base_claim_percentage: f32,      // 8
-    pub initial_bonus_percentage: f32,   // 8
 }
 
 #[error_code]

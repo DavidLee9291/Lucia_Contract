@@ -7,3 +7,6 @@ node_modules
 test-ledger
 .yarn
 Anchor.toml
+id2.json
+id3.json
+id4.json
