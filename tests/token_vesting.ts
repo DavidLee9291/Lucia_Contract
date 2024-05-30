@@ -90,97 +90,96 @@ describe("token_vesting", () => {
     _dataAccountAfterInit = dataAccount;
   });
 
-  // it("Test Release With False Sender", async () => {
-  //   dataAccount = _dataAccountAfterInit;
+  it("Test Release With False Sender", async () => {
+    dataAccount = _dataAccountAfterInit;
 
-  //   const falseSender = anchor.web3.Keypair.generate();
-  //   try {
-  //     const releaseTx = await program.methods
-  //       .releaseLuciaVesting(dataBump, 100, 10.0, 10.0)
-  //       .accounts({
-  //         dataAccount: dataAccount,
-  //         sender: falseSender.publicKey,
-  //         tokenMint: mintAddress,
-  //         systemProgram: anchor.web3.SystemProgram.programId,
-  //       })
-  //       .signers([falseSender])
-  //       .rpc();
-  //     assert.ok(false, "Error was supposed to be thrown");
-  //   } catch (err) {
-  //     // console.log(err);
-  //     assert.equal(err instanceof AnchorError, true);
-  //     assert.equal(err.error.errorCode.code, "InvalidSender");
-  //   }
-  // });
+    const falseSender = anchor.web3.Keypair.generate();
+    try {
+      const releaseTx = await program.methods
+        .releaseLuciaVesting(dataBump, 1)
+        .accounts({
+          dataAccount: dataAccount,
+          sender: falseSender.publicKey,
+          tokenMint: mintAddress,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .signers([falseSender])
+        .rpc();
+      assert.ok(false, "Error was supposed to be thrown");
+    } catch (err) {
+      // console.log(err);
+      assert.equal(err instanceof AnchorError, true);
+      assert.equal(err.error.errorCode.code, "InvalidSender");
+    }
+  });
 
-  // it("Test Release", async () => {
-  //   dataAccount = _dataAccountAfterInit;
+  it("Test Release", async () => {
+    dataAccount = _dataAccountAfterInit;
 
-  //   const releaseTx = await program.methods
-  //     .releaseLuciaVesting(dataBump, 100, 10.0, 10.0)
-  //     .accounts({
-  //       dataAccount: dataAccount,
-  //       sender: sender.publicKey,
-  //       tokenMint: mintAddress,
-  //       systemProgram: anchor.web3.SystemProgram.programId,
-  //     })
-  //     .signers([sender])
-  //     .rpc();
+    const releaseTx = await program.methods
+      .releaseLuciaVesting(dataBump, 1)
+      .accounts({
+        dataAccount: dataAccount,
+        sender: sender.publicKey,
+        tokenMint: mintAddress,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .signers([sender])
+      .rpc();
 
-  //   let accountAfterRelease =
-  //     await program.account.dataAccount.fetch(dataAccount);
-  //   console.log(
-  //     `release TX: https://explorer.solana.com/tx/${releaseTx}?cluster=custom`,
-  //   );
+    let accountAfterRelease = await program.account.dataAccount.fetch(
+      dataAccount
+    );
+    console.log(
+      `release TX: https://explorer.solana.com/tx/${releaseTx}?cluster=custom`
+    );
 
-  //   assert.equal(accountAfterRelease.percentAvailable, 100); // Percent Available updated correctly
-  //   assert.equal(accountAfterRelease.baseClaimPercentage, 10.0); // 기본 비율 확인
-  //   assert.equal(accountAfterRelease.initialBonusPercentage, 10.0); // 첫 번째 달 추가 비율 확인
+    assert.equal(accountAfterRelease.state, 1); // state : 1 Start a Release. initialize = 0
 
-  //   _dataAccountAfterRelease = dataAccount;
-  // });
+    _dataAccountAfterRelease = dataAccount;
+  });
 
-  // it("Test First Month Claim", async () => {
-  //   dataAccount = _dataAccountAfterRelease;
+  it("Test First Month Claim", async () => {
+    dataAccount = _dataAccountAfterRelease;
 
-  //   // Set up a mock time to simulate the first month after lockup end
-  //   const lockupEndTime =
-  //     Math.floor(Date.now() / 1000) - 3 * 365 * 24 * 60 * 60; // 3 years ago
-  //   const firstMonthTime = new anchor.BN(lockupEndTime).add(
-  //     new anchor.BN(3 * 365 * 24 * 60 * 60 + 30 * 24 * 60 * 60),
-  //   ); // 3 years and 30 days later
+    // Set up a mock time to simulate the first month after lockup end
+    const lockupEndTime =
+      Math.floor(Date.now() / 1000) - 3 * 365 * 24 * 60 * 60; // 3 years ago
+    const firstMonthTime = new anchor.BN(lockupEndTime).add(
+      new anchor.BN(3 * 365 * 24 * 60 * 60 + 30 * 24 * 60 * 60)
+    ); // 3 years and 30 days later
 
-  //   // Simulate time check for the first month
-  //   const currentTime = new anchor.BN(Math.floor(Date.now() / 1000));
-  //   if (currentTime.lt(firstMonthTime)) {
-  //     throw new Error(
-  //       "Current time is not within the first month after lockup end",
-  //     );
-  //   }
+    // Simulate time check for the first month
+    const currentTime = new anchor.BN(Math.floor(Date.now() / 1000));
+    if (currentTime.lt(firstMonthTime)) {
+      throw new Error(
+        "Current time is not within the first month after lockup end"
+      );
+    }
 
-  //   const claimTx = await program.methods
-  //     .claimLuciaToken(dataBump, escrowBump)
-  //     .accounts({
-  //       dataAccount: dataAccount,
-  //       escrowWallet: escrowWallet,
-  //       sender: beneficiary.publicKey,
-  //       tokenMint: mintAddress,
-  //       walletToDepositTo: beneficiaryATA,
-  //       associatedTokenProgram: spl.ASSOCIATED_TOKEN_PROGRAM_ID,
-  //       tokenProgram: spl.TOKEN_PROGRAM_ID,
-  //       systemProgram: anchor.web3.SystemProgram.programId,
-  //     })
-  //     .signers([beneficiary])
-  //     .rpc();
-  //   console.log(
-  //     `claim TX: https://explorer.solana.com/tx/${claimTx}?cluster=custom`,
-  //   );
+    const claimTx = await program.methods
+      .claimLuciaToken(dataBump, escrowBump)
+      .accounts({
+        dataAccount: dataAccount,
+        escrowWallet: escrowWallet,
+        sender: beneficiary.publicKey,
+        tokenMint: mintAddress,
+        walletToDepositTo: beneficiaryATA,
+        associatedTokenProgram: spl.ASSOCIATED_TOKEN_PROGRAM_ID,
+        tokenProgram: spl.TOKEN_PROGRAM_ID,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .signers([beneficiary])
+      .rpc();
+    console.log(
+      `claim TX: https://explorer.solana.com/tx/${claimTx}?cluster=custom`
+    );
 
-  //   assert.equal(await getTokenBalanceWeb3(beneficiaryATA, provider), 100); // 예시: 첫 번째 달 클레임 후 잔액 확인
-  //   assert.equal(await getTokenBalanceWeb3(escrowWallet, provider), 900); // 예시: 첫 번째 달 클레임 후 에스크로 잔액 확인
+    assert.equal(await getTokenBalanceWeb3(beneficiaryATA, provider), 100); // example : 첫 번째 달 클레임 후 잔액 확인
+    assert.equal(await getTokenBalanceWeb3(escrowWallet, provider), 900); // example : 첫 번째 달 클레임 후 에스크로 잔액 확인
 
-  //   _dataAccountAfterClaim = dataAccount;
-  // });
+    _dataAccountAfterClaim = dataAccount;
+  });
 
   // it("Test Second Month Claim", async () => {
   //   dataAccount = _dataAccountAfterClaim;
