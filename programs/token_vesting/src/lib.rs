@@ -2,11 +2,10 @@ use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
-declare_id!("HWaGc49AZC3Aim9M1VBFAhgLdmw9Xp7T7QF4K9kgpuLh");
+declare_id!("5xhjkNtJT4U8v34ZLB3iPauiuxkwc8NjtULu7BZbVcpT");
 
 #[program]
 pub mod token_vesting {
-
     use super::*;
 
     pub fn initialize(
@@ -14,30 +13,23 @@ pub mod token_vesting {
         beneficiaries: Vec<Beneficiary>,
         amount: u64,
         decimals: u8,
-        lockup_period: u64,
     ) -> Result<()> {
         let data_account: &mut Account<DataAccount> = &mut ctx.accounts.data_account;
 
         msg!(
-            "Initializing data account with amount: {}, decimals: {}, lockup_duration: {}",
+            "Initializing data account with amount: {}, decimals: {}",
             amount,
-            decimals,
-            lockup_period
+            decimals
         );
+        msg!("Beneficiaries: {:?}", beneficiaries);
 
         data_account.beneficiaries = beneficiaries;
-        data_account.percent_available = 0;
+        data_account.state = 0;
         data_account.token_amount = amount;
         data_account.decimals = decimals; // b/c bpf does not have any floats
         data_account.initializer = ctx.accounts.sender.to_account_info().key();
         data_account.escrow_wallet = ctx.accounts.escrow_wallet.to_account_info().key();
         data_account.token_mint = ctx.accounts.token_mint.to_account_info().key();
-        data_account.lockup_end_time = Clock::get()?.unix_timestamp + lockup_period as i64; // lockup 종료 시간 설정
-
-        msg!(
-            "Data account initialized with lockup end time: {}",
-            data_account.lockup_end_time
-        );
 
         let transfer_instruction: Transfer = Transfer {
             from: ctx.accounts.wallet_to_withdraw_from.to_account_info(),
@@ -61,22 +53,16 @@ pub mod token_vesting {
     }
 
     //
-    pub fn release_lucia_vesting(
-        ctx: Context<Release>,
-        _data_bump: u8,
-        percent: u8,
-        base_claim_percentage: f32,
-        initial_bonus_percentage: f32,
-    ) -> Result<()> {
+    pub fn release_lucia_vesting(ctx: Context<Release>, _data_bump: u8, state: u8) -> Result<()> {
         let data_account: &mut Account<DataAccount> = &mut ctx.accounts.data_account;
 
-        data_account.percent_available = percent;
-        data_account.base_claim_percentage = base_claim_percentage;
-        data_account.initial_bonus_percentage = initial_bonus_percentage;
+        data_account.state = state;
+        msg!("Vesting Start - state : {}", state);
+
         Ok(())
     }
 
-    pub fn claim_lucia_token(ctx: Context<Claim>, data_bump: u8, _escrow_bump: u8) -> Result<()> {
+    pub fn claim_lux_token(ctx: Context<Claim>, data_bump: u8, _escrow_bump: u8) -> Result<()> {
         let sender: &Signer = &ctx.accounts.sender;
         let escrow_wallet: &Account<TokenAccount> = &ctx.accounts.escrow_wallet;
         let data_account: &mut Account<DataAccount> = &mut ctx.accounts.data_account;
@@ -86,14 +72,12 @@ pub mod token_vesting {
         let beneficiary_ata: &Account<TokenAccount> = &ctx.accounts.wallet_to_deposit_to;
         let decimals = data_account.decimals;
 
-        // Get the current time
-        let current_time = Clock::get()?.unix_timestamp;
-
-        // Check if the lockup period has ended
-        require!(
-            current_time >= data_account.lockup_end_time,
-            VestingError::LockupNotExpired
-        );
+        // 로깅 추가
+        msg!("Starting claim_lux_token function");
+        msg!("Sender: {:?}", sender);
+        msg!("Escrow Wallet: {:?}", escrow_wallet);
+        msg!("Token Mint Key: {:?}", token_mint_key);
+        msg!("Beneficiary ATA: {:?}", beneficiary_ata);
 
         let (index, beneficiary) = beneficiaries
             .iter()
@@ -101,33 +85,44 @@ pub mod token_vesting {
             .find(|(_, beneficiary)| beneficiary.key == *sender.to_account_info().key)
             .ok_or(VestingError::BeneficiaryNotFound)?;
 
-        let lockup_end_time = data_account.lockup_end_time;
+        msg!("Beneficiary found: {:?}", beneficiary);
+
+        let current_time = Clock::get()?.unix_timestamp;
+        let lockup_end_time = beneficiary.lockup_period;
+        let release_period = beneficiary.release_period; // 새로운 필드 추가
+
+        msg!("Current time: {}", current_time);
+        msg!("Lockup end time: {}", lockup_end_time);
+        msg!("Release period: {}", release_period);
+
+        require!(
+            current_time >= lockup_end_time,
+            VestingError::LockupNotExpired
+        );
+
         let time_since_lockup_end = current_time - lockup_end_time;
 
-        // Basic claim percentage and initial bonus percentage
-        let base_claim_percentage = data_account.base_claim_percentage;
-        let initial_bonus_percentage = data_account.initial_bonus_percentage;
-
-        // Calculate the claimable percentage
-        let claimable_percentage = if time_since_lockup_end < 30 * 24 * 60 * 60 {
-            initial_bonus_percentage
+        // 인출 가능한 비율 계산
+        let claimable_percentage = if time_since_lockup_end >= release_period {
+            100.0 // 릴리즈 기간이 끝난 후 모든 토큰을 인출 가능
         } else {
-            let months_since_lockup_end = (time_since_lockup_end / (30 * 24 * 60 * 60)) as f32;
-            base_claim_percentage * (months_since_lockup_end + 1.0).min(12.0)
+            ((time_since_lockup_end as f64) / (release_period as f64)) * 100.0
         };
 
-        let total_claimable_tokens =
-            ((claimable_percentage / 100.0) * (beneficiary.allocated_tokens as f32)) as u64;
+        msg!("Claimable percentage: {}", claimable_percentage);
 
-        msg!("total_claimable: {}", total_claimable_tokens);
-        msg!("beneficiary: {}", beneficiary.claimed_tokens);
+        let total_claimable_tokens =
+            ((claimable_percentage / 100.0) * (beneficiary.allocated_tokens as f64)) as u64;
+
+        msg!("Total claimable tokens: {}", total_claimable_tokens);
+        msg!("Beneficiary claimed tokens: {}", beneficiary.claimed_tokens);
 
         let amount_to_transfer = total_claimable_tokens.saturating_sub(beneficiary.claimed_tokens);
 
-        // Prevent double claim: check if the claimable tokens are greater than 0
+        // 이중 인출 방지: 인출 가능한 토큰이 0보다 큰지 확인
         require!(amount_to_transfer > 0, VestingError::ClaimNotAllowed);
 
-        // Transfer Logic:
+        // 전송 로직
         let seeds = &[
             "lucia_data_account".as_bytes(),
             token_mint_key.as_ref(),
@@ -147,8 +142,12 @@ pub mod token_vesting {
             signer_seeds,
         );
 
+        msg!("Transferring {} tokens", amount_to_transfer);
+
         token::transfer(cpi_ctx, amount_to_transfer * u64::pow(10, decimals as u32))?;
         data_account.beneficiaries[index].claimed_tokens += amount_to_transfer;
+
+        msg!("Transfer complete");
 
         Ok(())
     }
@@ -159,7 +158,7 @@ pub struct Initialize<'info> {
     #[account(
         init,
         payer = sender,
-        space = 8 + 1 + 8 + 32 + 32 + 32 + 1 + 8 + 8 + (4 + 50 * (32 + 8 + 8) + 1), // Can take 50 accounts to vest to
+        space = 8 + 1 + 8 + 32 + 32 + 32 + 1 + (4 + 50 * (32 + 8 + 8 + 8 + 4 + 8) + 1), // Can take 50 accounts to vest to
         seeds = [b"lucia_data_account", token_mint.key().as_ref()],
         bump
     )]
@@ -248,27 +247,27 @@ pub struct Claim<'info> {
     pub system_program: Program<'info, System>,
 }
 
-#[derive(Default, Copy, Clone, AnchorSerialize, AnchorDeserialize)]
+#[derive(Default, Copy, Clone, AnchorSerialize, AnchorDeserialize, Debug)]
 pub struct Beneficiary {
-    pub key: Pubkey,           // 32
-    pub allocated_tokens: u64, // 8
-    pub claimed_tokens: u64,   // 8
+    pub key: Pubkey,                   // 32
+    pub allocated_tokens: u64,         // 8
+    pub claimed_tokens: u64,           // 8
+    pub initial_bonus_percentage: f32, // 8
+    pub lockup_period: i64,            // 8
+    pub release_period: i64,           //8
 }
 
 #[account]
 #[derive(Default)]
 pub struct DataAccount {
-    // Space in bytes: 8 + 1 + 8 + 32 + 32 + 32 + 1 + 8 + 8 + 8 + (4 + (100 * (32 + 8 + 8)))
-    pub percent_available: u8,           // 1
+    // Space in bytes: 8 + 1 + 8 + 32 + 32 + 32 + 1 + (4 + (100 * (32 + 8 + 8 + 8 + 8 + 8)))
+    pub state: u8,                       // 1
     pub token_amount: u64,               // 8
     pub initializer: Pubkey,             // 32
     pub escrow_wallet: Pubkey,           // 32
     pub token_mint: Pubkey,              // 32
-    pub beneficiaries: Vec<Beneficiary>, // (4 + (n * (32 + 8 + 8)))
+    pub beneficiaries: Vec<Beneficiary>, // (4 + (n * (32 + 8 + 8 + 8 + 8 + 8)))
     pub decimals: u8,                    // 1
-    pub lockup_end_time: i64,            // 8
-    pub base_claim_percentage: f32,      // 8
-    pub initial_bonus_percentage: f32,   // 8
 }
 
 #[error_code]
