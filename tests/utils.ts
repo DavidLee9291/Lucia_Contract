@@ -43,7 +43,7 @@ export const createUserAndATA = async (
   provider: anchor.AnchorProvider,
   mint: anchor.web3.PublicKey
 ): Promise<[anchor.web3.Keypair, anchor.web3.PublicKey]> => {
-  // Create the User, fund with 10 SOL to be able to execute tx's
+  // Create the User, fund with 10 SOL to be able to execute tx's.
   const user = anchor.web3.Keypair.generate();
   console.log("user :", user.publicKey.toString());
   let token_airdrop = await provider.connection.requestAirdrop(

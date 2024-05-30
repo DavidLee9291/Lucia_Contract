@@ -1,8 +1,8 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
-use anchor_spl::token::{ self, Mint, Token, TokenAccount, Transfer };
+use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
-declare_id!("HK2Awb6Y8baCCvgRqof4fgeK5L87XTi3K1FPFhTFjYVG");
+declare_id!("5xhjkNtJT4U8v34ZLB3iPauiuxkwc8NjtULu7BZbVcpT");
 
 #[program]
 pub mod token_vesting {
@@ -12,15 +12,19 @@ pub mod token_vesting {
         ctx: Context<Initialize>,
         beneficiaries: Vec<Beneficiary>,
         amount: u64,
-        decimals: u8
+        decimals: u8,
     ) -> Result<()> {
         let data_account: &mut Account<DataAccount> = &mut ctx.accounts.data_account;
 
-        msg!("Initializing data account with amount: {}, decimals: {}", amount, decimals);
+        msg!(
+            "Initializing data account with amount: {}, decimals: {}",
+            amount,
+            decimals
+        );
         msg!("Beneficiaries: {:?}", beneficiaries);
 
         data_account.beneficiaries = beneficiaries;
-        data_account.percent_available = 0;
+        data_account.state = 0;
         data_account.token_amount = amount;
         data_account.decimals = decimals; // b/c bpf does not have any floats
         data_account.initializer = ctx.accounts.sender.to_account_info().key();
@@ -35,10 +39,13 @@ pub mod token_vesting {
 
         let cpi_ctx: CpiContext<Transfer> = CpiContext::new(
             ctx.accounts.token_program.to_account_info(),
-            transfer_instruction
+            transfer_instruction,
         );
 
-        token::transfer(cpi_ctx, data_account.token_amount * u64::pow(10, decimals as u32))?;
+        token::transfer(
+            cpi_ctx,
+            data_account.token_amount * u64::pow(10, decimals as u32),
+        )?;
 
         msg!("Token transfer completed");
 
@@ -46,10 +53,12 @@ pub mod token_vesting {
     }
 
     //
-    pub fn release_lucia_vesting(ctx: Context<Release>, _data_bump: u8, percent: u8) -> Result<()> {
+    pub fn release_lucia_vesting(ctx: Context<Release>, _data_bump: u8, state: u8) -> Result<()> {
         let data_account: &mut Account<DataAccount> = &mut ctx.accounts.data_account;
 
-        data_account.percent_available = percent;
+        data_account.state = state;
+        msg!("Vesting Start - state : {}", state);
+
         Ok(())
     }
 
@@ -86,7 +95,10 @@ pub mod token_vesting {
         msg!("Lockup end time: {}", lockup_end_time);
         msg!("Release period: {}", release_period);
 
-        require!(current_time >= lockup_end_time, VestingError::LockupNotExpired);
+        require!(
+            current_time >= lockup_end_time,
+            VestingError::LockupNotExpired
+        );
 
         let time_since_lockup_end = current_time - lockup_end_time;
 
@@ -99,8 +111,8 @@ pub mod token_vesting {
 
         msg!("Claimable percentage: {}", claimable_percentage);
 
-        let total_claimable_tokens = ((claimable_percentage / 100.0) *
-            (beneficiary.allocated_tokens as f64)) as u64;
+        let total_claimable_tokens =
+            ((claimable_percentage / 100.0) * (beneficiary.allocated_tokens as f64)) as u64;
 
         msg!("Total claimable tokens: {}", total_claimable_tokens);
         msg!("Beneficiary claimed tokens: {}", beneficiary.claimed_tokens);
@@ -111,7 +123,11 @@ pub mod token_vesting {
         require!(amount_to_transfer > 0, VestingError::ClaimNotAllowed);
 
         // 전송 로직
-        let seeds = &["lucia_data_account".as_bytes(), token_mint_key.as_ref(), &[data_bump]];
+        let seeds = &[
+            "lucia_data_account".as_bytes(),
+            token_mint_key.as_ref(),
+            &[data_bump],
+        ];
         let signer_seeds = &[&seeds[..]];
 
         let transfer_instruction = Transfer {
@@ -123,7 +139,7 @@ pub mod token_vesting {
         let cpi_ctx = CpiContext::new_with_signer(
             token_program.to_account_info(),
             transfer_instruction,
-            signer_seeds
+            signer_seeds,
         );
 
         msg!("Transferring {} tokens", amount_to_transfer);
@@ -233,25 +249,25 @@ pub struct Claim<'info> {
 
 #[derive(Default, Copy, Clone, AnchorSerialize, AnchorDeserialize, Debug)]
 pub struct Beneficiary {
-    pub key: Pubkey, // 32
-    pub allocated_tokens: u64, // 8
-    pub claimed_tokens: u64, // 8
+    pub key: Pubkey,                   // 32
+    pub allocated_tokens: u64,         // 8
+    pub claimed_tokens: u64,           // 8
     pub initial_bonus_percentage: f32, // 8
-    pub lockup_period: i64, // 8
-    pub release_period: i64, //8
+    pub lockup_period: i64,            // 8
+    pub release_period: i64,           //8
 }
 
 #[account]
 #[derive(Default)]
 pub struct DataAccount {
     // Space in bytes: 8 + 1 + 8 + 32 + 32 + 32 + 1 + (4 + (100 * (32 + 8 + 8 + 8 + 8 + 8)))
-    pub percent_available: u8, // 1
-    pub token_amount: u64, // 8
-    pub initializer: Pubkey, // 32
-    pub escrow_wallet: Pubkey, // 32
-    pub token_mint: Pubkey, // 32
+    pub state: u8,                       // 1
+    pub token_amount: u64,               // 8
+    pub initializer: Pubkey,             // 32
+    pub escrow_wallet: Pubkey,           // 32
+    pub token_mint: Pubkey,              // 32
     pub beneficiaries: Vec<Beneficiary>, // (4 + (n * (32 + 8 + 8 + 8 + 8 + 8)))
-    pub decimals: u8, // 1
+    pub decimals: u8,                    // 1
 }
 
 #[error_code]

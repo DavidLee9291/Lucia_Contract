@@ -41,18 +41,18 @@ describe("token_vesting", () => {
     // Create PDA's for account_data_account and escrow_wallet
     [dataAccount, dataBump] = await createPDA(
       [Buffer.from("lucia_data_account"), mintAddress.toBuffer()],
-      program.programId,
+      program.programId
     );
 
     [escrowWallet, escrowBump] = await createPDA(
       [Buffer.from("lucia_escrow_wallet"), mintAddress.toBuffer()],
-      program.programId,
+      program.programId
     );
 
     // Create a test Beneficiary object to send into contract
     [beneficiary, beneficiaryATA] = await createUserAndATA(
       provider,
-      mintAddress,
+      mintAddress
     );
 
     beneficiaryArray = [
@@ -69,18 +69,8 @@ describe("token_vesting", () => {
 
   it("Test Initialize", async () => {
     // Send initialize transaction
-    const initTx = await program.methods
-      .initialize(beneficiaryArray, new anchor.BN(1000000000), decimals)
-      .accounts({
-        dataAccount: dataAccount,
-        escrowWallet: escrowWallet,
-        walletToWithdrawFrom: senderATA,
-        tokenMint: mintAddress,
-        sender: sender.publicKey,
-        systemProgram: anchor.web3.SystemProgram.programId,
-        tokenProgram: spl.TOKEN_PROGRAM_ID,
-      })
-      .signers([sender])
+    await program.methods
+      .initialize(beneficiary, new anchor.BN(100000), 1)
       .rpc();
 
     let accountAfterInit = await program.account.dataAccount.fetch(dataAccount);
@@ -91,7 +81,7 @@ describe("token_vesting", () => {
     // );
 
     console.log(
-      `init TX: https://explorer.solana.com/tx/${initTx}?cluster=custom`,
+      `init TX: https://explorer.solana.com/tx/${initTx}?cluster=custom`
     );
 
     assert.equal(await getTokenBalanceWeb3(escrowWallet, provider), 1000000000); // Escrow account receives balance of token
