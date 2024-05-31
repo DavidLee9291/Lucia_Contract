@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{ self, Mint, Token, TokenAccount, Transfer };
 
-declare_id!("9c2ZJofiSHhtgs7SjEtbQJEPhAz2m288U8Vu8PEPmtR8");
+declare_id!("2VYbdzLVgza18y5jABNSZLkvrL1k9ksLCEqSmue1Xq3W");
 
 #[program]
 pub mod lucia_vesting {
@@ -20,20 +20,6 @@ pub mod lucia_vesting {
         msg!("Beneficiaries: {:?}", beneficiaries);
 
         data_account.beneficiaries = beneficiaries;
-
-        // 초기값을 확인하는 로깅 추가
-        for (i, beneficiary) in data_account.beneficiaries.iter().enumerate() {
-            msg!(
-                "Beneficiary {}: Key: {}, Allocated Tokens: {}, Claimed Tokens: {}, Unlock TGE: {}, Lockup Period: {}, Unlock Duration: {}",
-                i,
-                beneficiary.key,
-                beneficiary.allocated_tokens,
-                beneficiary.claimed_tokens,
-                beneficiary.unlock_tge,
-                beneficiary.lockup_period,
-                beneficiary.unlock_duration
-            );
-        }
         data_account.state = 0;
         data_account.token_amount = amount;
         data_account.decimals = decimals; // b/c bpf does not have any floats
@@ -69,7 +55,7 @@ pub mod lucia_vesting {
         Ok(())
     }
 
-    pub fn claim_lux_token(ctx: Context<Claim>, data_bump: u8, _wallet_bump: u8) -> Result<()> {
+    pub fn claim_lux(ctx: Context<Claim>, data_bump: u8, _escrow_bump: u8) -> Result<()> {
         let sender = &mut ctx.accounts.sender;
         let escrow_wallet = &mut ctx.accounts.escrow_wallet;
         let data_account = &mut ctx.accounts.data_account;
@@ -79,107 +65,62 @@ pub mod lucia_vesting {
         let beneficiary_ata = &mut ctx.accounts.wallet_to_deposit_to;
         let decimals = data_account.decimals;
 
-        msg!("Starting claim_lux_token function");
-        msg!("Sender: {:?}", sender);
-        msg!("Escrow Wallet: {:?}", escrow_wallet);
-        msg!("Token Mint Key: {:?}", token_mint_key);
-        msg!("Beneficiary ATA: {:?}", beneficiary_ata);
-
+        msg!("Claim Lux!! {:?}", beneficiary_ata);
         // Find the beneficiary
-        let (index, beneficiary) = match
-            beneficiaries
-                .iter()
-                .enumerate()
-                .find(|(_, beneficiary)| beneficiary.key == *sender.to_account_info().key)
-        {
-            Some(val) => val,
-            None => {
-                msg!("Beneficiary not found");
-                return Err(VestingError::BeneficiaryNotFound.into());
-            }
-        };
+        let (index, beneficiary) = beneficiaries
+            .iter()
+            .enumerate()
+            .find(|(_, beneficiary)| beneficiary.key == *sender.to_account_info().key)
+            .ok_or(VestingError::BeneficiaryNotFound)?;
 
-        msg!("Beneficiary found: {:?}", beneficiary);
-
-        // Get the current time
+        // Check if the lockup period has expired
         let current_time = Clock::get()?.unix_timestamp as u64;
-
-        // Calculate the end of the lockup period
         let lockup_end_time = data_account.initialized_at + beneficiary.lockup_period;
-        let unlock_duration = beneficiary.unlock_duration;
-
-        msg!("Current time: {}", current_time);
-        msg!("Lockup end time: {}", lockup_end_time);
-        msg!("Unlock duration: {}", unlock_duration);
-
-        // Ensure the lockup period has ended
         require!(current_time >= lockup_end_time, VestingError::LockupNotExpired);
 
-        // Calculate the time since the lockup period ended
+        // Calculate the unlockable tokens based on the unlock duration and unlockTge
         let time_since_lockup_end = current_time - lockup_end_time;
-
-        // Calculate the initial bonus tokens based on the TGE percentage
-        let initial_bonus_tokens = (((beneficiary.unlock_tge as f64) / 100.0) *
-            (beneficiary.allocated_tokens as f64)) as u64;
-
-        // Calculate the claimable percentage based on the time since lockup end
-        let claimable_percentage = if time_since_lockup_end >= unlock_duration {
-            100.0
+        let mut unlockable_tokens = 0;
+        if time_since_lockup_end < beneficiary.unlock_duration {
+            // 첫 번째 달인 경우 unlockTge 비율을 적용
+            unlockable_tokens = (((beneficiary.unlock_tge as f64) / 100.0) *
+                (beneficiary.allocated_tokens as f64)) as u64;
         } else {
-            ((time_since_lockup_end as f64) / (unlock_duration as f64)) * 100.0
-        };
-
-        msg!("Claimable percentage: {}", claimable_percentage);
-
-        // Calculate the total claimable tokens
-        let total_claimable_tokens =
-            initial_bonus_tokens +
-            (
-                ((claimable_percentage / 100.0) *
-                    ((beneficiary.allocated_tokens as f64) - (initial_bonus_tokens as f64))) as u64
-            );
-
-        msg!("Total claimable tokens: {}", total_claimable_tokens);
-        msg!("Beneficiary claimed tokens: {}", beneficiary.claimed_tokens);
+            // 이후 달은 unlockDuration에 따라 선형적으로 토큰 지급
+            let unlockable_duration = beneficiary.unlock_duration;
+            let unlockable_percentage =
+                (((time_since_lockup_end - unlockable_duration) as f64) /
+                    (unlockable_duration as f64)) *
+                100.0;
+            unlockable_tokens = (((beneficiary.unlock_tge as f64) / 100.0 +
+                unlockable_percentage / 100.0) *
+                (beneficiary.allocated_tokens as f64)) as u64;
+        }
 
         // Calculate the amount to transfer
-        let amount_to_transfer = total_claimable_tokens.saturating_sub(beneficiary.claimed_tokens);
+        let amount_to_transfer = unlockable_tokens.saturating_sub(beneficiary.claimed_tokens);
+        require!(amount_to_transfer > 0, VestingError::ClaimNotAllowed); // Allowed to claim new tokens
 
-        // Ensure there are tokens to transfer
-        require!(amount_to_transfer > 0, VestingError::ClaimNotAllowed);
-
-        // Create the signer seeds
-        let seeds = &[b"data_account", token_mint_key.as_ref(), &[data_bump]];
+        // Transfer Logic:
+        let seeds = &["data_account".as_bytes(), token_mint_key.as_ref(), &[data_bump]];
         let signer_seeds = &[&seeds[..]];
 
-        // Create the transfer instruction
         let transfer_instruction = Transfer {
             from: escrow_wallet.to_account_info(),
             to: beneficiary_ata.to_account_info(),
             authority: data_account.to_account_info(),
         };
 
-        // Create the CPI context
         let cpi_ctx = CpiContext::new_with_signer(
             token_program.to_account_info(),
             transfer_instruction,
             signer_seeds
         );
 
-        msg!("Transferring {} tokens", amount_to_transfer);
+        token::transfer(cpi_ctx, amount_to_transfer * u64::pow(10, decimals as u32))?;
 
-        // Perform the token transfer
-        match token::transfer(cpi_ctx, amount_to_transfer * u64::pow(10, decimals as u32)) {
-            Ok(_) => {
-                // Update the claimed tokens for the beneficiary
-                data_account.beneficiaries[index].claimed_tokens += amount_to_transfer;
-                msg!("Transfer complete");
-            }
-            Err(e) => {
-                msg!("Token transfer failed: {:?}", e);
-                return Err(e.into());
-            }
-        }
+        // Update the claimed tokens for the beneficiary
+        data_account.beneficiaries[index].claimed_tokens += amount_to_transfer;
 
         Ok(())
     }
