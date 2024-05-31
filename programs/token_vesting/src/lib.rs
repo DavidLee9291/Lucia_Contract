@@ -6,7 +6,6 @@ declare_id!("5xhjkNtJT4U8v34ZLB3iPauiuxkwc8NjtULu7BZbVcpT");
 
 #[program]
 pub mod lucia_vesting {
->>>>>>> Stashed changes
     use super::*;
 
     pub fn initialize(
