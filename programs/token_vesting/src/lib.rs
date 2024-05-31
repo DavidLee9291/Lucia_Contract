@@ -5,9 +5,6 @@ use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 declare_id!("5xhjkNtJT4U8v34ZLB3iPauiuxkwc8NjtULu7BZbVcpT");
 
 #[program]
-<<<<<<< Updated upstream
-pub mod token_vesting {
-=======
 pub mod lucia_vesting {
 >>>>>>> Stashed changes
     use super::*;
