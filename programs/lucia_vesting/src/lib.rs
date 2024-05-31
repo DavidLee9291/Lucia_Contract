@@ -1,8 +1,8 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
-use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
+use anchor_spl::token::{ self, Mint, Token, TokenAccount, Transfer };
 
-declare_id!("5xhjkNtJT4U8v34ZLB3iPauiuxkwc8NjtULu7BZbVcpT");
+declare_id!("9c2ZJofiSHhtgs7SjEtbQJEPhAz2m288U8Vu8PEPmtR8");
 
 #[program]
 pub mod lucia_vesting {
@@ -12,18 +12,28 @@ pub mod lucia_vesting {
         ctx: Context<Initialize>,
         beneficiaries: Vec<Beneficiary>,
         amount: u64,
-        decimals: u8,
+        decimals: u8
     ) -> Result<()> {
         let data_account: &mut Account<DataAccount> = &mut ctx.accounts.data_account;
 
-        msg!(
-            "Initializing data account with amount: {}, decimals: {}",
-            amount,
-            decimals
-        );
+        msg!("Initializing data account with amount: {}, decimals: {}", amount, decimals);
         msg!("Beneficiaries: {:?}", beneficiaries);
 
         data_account.beneficiaries = beneficiaries;
+
+        // 초기값을 확인하는 로깅 추가
+        for (i, beneficiary) in data_account.beneficiaries.iter().enumerate() {
+            msg!(
+                "Beneficiary {}: Key: {}, Allocated Tokens: {}, Claimed Tokens: {}, Unlock TGE: {}, Lockup Period: {}, Unlock Duration: {}",
+                i,
+                beneficiary.key,
+                beneficiary.allocated_tokens,
+                beneficiary.claimed_tokens,
+                beneficiary.unlock_tge,
+                beneficiary.lockup_period,
+                beneficiary.unlock_duration
+            );
+        }
         data_account.state = 0;
         data_account.token_amount = amount;
         data_account.decimals = decimals; // b/c bpf does not have any floats
@@ -39,13 +49,10 @@ pub mod lucia_vesting {
 
         let cpi_ctx: CpiContext<Transfer> = CpiContext::new(
             ctx.accounts.token_program.to_account_info(),
-            transfer_instruction,
+            transfer_instruction
         );
 
-        token::transfer(
-            cpi_ctx,
-            data_account.token_amount * u64::pow(10, decimals as u32),
-        )?;
+        token::transfer(cpi_ctx, data_account.token_amount * u64::pow(10, decimals as u32))?;
 
         msg!("Token transfer completed");
 
@@ -62,92 +69,117 @@ pub mod lucia_vesting {
         Ok(())
     }
 
-    pub fn claim_lux_token(ctx: Context<Claim>, data_bump: u8, _escrow_bump: u8) -> Result<()> {
-        let sender: &Signer = &ctx.accounts.sender;
-        let escrow_wallet: &Account<TokenAccount> = &ctx.accounts.escrow_wallet;
-        let data_account: &mut Account<DataAccount> = &mut ctx.accounts.data_account;
-        let beneficiaries: &Vec<Beneficiary> = &data_account.beneficiaries;
-        let token_program: &Program<Token> = &ctx.accounts.token_program;
-        let token_mint_key: &Pubkey = &ctx.accounts.token_mint.key();
-        let beneficiary_ata: &Account<TokenAccount> = &ctx.accounts.wallet_to_deposit_to;
+    pub fn claim_lux_token(ctx: Context<Claim>, data_bump: u8, _wallet_bump: u8) -> Result<()> {
+        let sender = &mut ctx.accounts.sender;
+        let escrow_wallet = &mut ctx.accounts.escrow_wallet;
+        let data_account = &mut ctx.accounts.data_account;
+        let beneficiaries = &data_account.beneficiaries;
+        let token_program = &mut ctx.accounts.token_program;
+        let token_mint_key = &mut ctx.accounts.token_mint.key();
+        let beneficiary_ata = &mut ctx.accounts.wallet_to_deposit_to;
         let decimals = data_account.decimals;
 
-        // 로깅 추가
         msg!("Starting claim_lux_token function");
         msg!("Sender: {:?}", sender);
         msg!("Escrow Wallet: {:?}", escrow_wallet);
         msg!("Token Mint Key: {:?}", token_mint_key);
         msg!("Beneficiary ATA: {:?}", beneficiary_ata);
 
-        let (index, beneficiary) = beneficiaries
-            .iter()
-            .enumerate()
-            .find(|(_, beneficiary)| beneficiary.key == *sender.to_account_info().key)
-            .ok_or(VestingError::BeneficiaryNotFound)?;
+        // Find the beneficiary
+        let (index, beneficiary) = match
+            beneficiaries
+                .iter()
+                .enumerate()
+                .find(|(_, beneficiary)| beneficiary.key == *sender.to_account_info().key)
+        {
+            Some(val) => val,
+            None => {
+                msg!("Beneficiary not found");
+                return Err(VestingError::BeneficiaryNotFound.into());
+            }
+        };
 
         msg!("Beneficiary found: {:?}", beneficiary);
 
-        let current_time = Clock::get()?.unix_timestamp;
-        let lockup_end_time = beneficiary.lockup_period;
-        let release_period = beneficiary.release_period; // 새로운 필드 추가
+        // Get the current time
+        let current_time = Clock::get()?.unix_timestamp as u64;
+
+        // Calculate the end of the lockup period
+        let lockup_end_time = data_account.initialized_at + beneficiary.lockup_period;
+        let unlock_duration = beneficiary.unlock_duration;
 
         msg!("Current time: {}", current_time);
         msg!("Lockup end time: {}", lockup_end_time);
-        msg!("Release period: {}", release_period);
+        msg!("Unlock duration: {}", unlock_duration);
 
-        require!(
-            current_time >= lockup_end_time,
-            VestingError::LockupNotExpired
-        );
+        // Ensure the lockup period has ended
+        require!(current_time >= lockup_end_time, VestingError::LockupNotExpired);
 
+        // Calculate the time since the lockup period ended
         let time_since_lockup_end = current_time - lockup_end_time;
 
-        // 인출 가능한 비율 계산
-        let claimable_percentage = if time_since_lockup_end >= release_period {
-            100.0 // 릴리즈 기간이 끝난 후 모든 토큰을 인출 가능
+        // Calculate the initial bonus tokens based on the TGE percentage
+        let initial_bonus_tokens = (((beneficiary.unlock_tge as f64) / 100.0) *
+            (beneficiary.allocated_tokens as f64)) as u64;
+
+        // Calculate the claimable percentage based on the time since lockup end
+        let claimable_percentage = if time_since_lockup_end >= unlock_duration {
+            100.0
         } else {
-            ((time_since_lockup_end as f64) / (release_period as f64)) * 100.0
+            ((time_since_lockup_end as f64) / (unlock_duration as f64)) * 100.0
         };
 
         msg!("Claimable percentage: {}", claimable_percentage);
 
+        // Calculate the total claimable tokens
         let total_claimable_tokens =
-            ((claimable_percentage / 100.0) * (beneficiary.allocated_tokens as f64)) as u64;
+            initial_bonus_tokens +
+            (
+                ((claimable_percentage / 100.0) *
+                    ((beneficiary.allocated_tokens as f64) - (initial_bonus_tokens as f64))) as u64
+            );
 
         msg!("Total claimable tokens: {}", total_claimable_tokens);
         msg!("Beneficiary claimed tokens: {}", beneficiary.claimed_tokens);
 
+        // Calculate the amount to transfer
         let amount_to_transfer = total_claimable_tokens.saturating_sub(beneficiary.claimed_tokens);
 
-        // 이중 인출 방지: 인출 가능한 토큰이 0보다 큰지 확인
+        // Ensure there are tokens to transfer
         require!(amount_to_transfer > 0, VestingError::ClaimNotAllowed);
 
-        // 전송 로직
-        let seeds = &[
-            "lucia_data_account".as_bytes(),
-            token_mint_key.as_ref(),
-            &[data_bump],
-        ];
+        // Create the signer seeds
+        let seeds = &[b"data_account", token_mint_key.as_ref(), &[data_bump]];
         let signer_seeds = &[&seeds[..]];
 
+        // Create the transfer instruction
         let transfer_instruction = Transfer {
             from: escrow_wallet.to_account_info(),
             to: beneficiary_ata.to_account_info(),
             authority: data_account.to_account_info(),
         };
 
+        // Create the CPI context
         let cpi_ctx = CpiContext::new_with_signer(
             token_program.to_account_info(),
             transfer_instruction,
-            signer_seeds,
+            signer_seeds
         );
 
         msg!("Transferring {} tokens", amount_to_transfer);
 
-        token::transfer(cpi_ctx, amount_to_transfer * u64::pow(10, decimals as u32))?;
-        data_account.beneficiaries[index].claimed_tokens += amount_to_transfer;
-
-        msg!("Transfer complete");
+        // Perform the token transfer
+        match token::transfer(cpi_ctx, amount_to_transfer * u64::pow(10, decimals as u32)) {
+            Ok(_) => {
+                // Update the claimed tokens for the beneficiary
+                data_account.beneficiaries[index].claimed_tokens += amount_to_transfer;
+                msg!("Transfer complete");
+            }
+            Err(e) => {
+                msg!("Token transfer failed: {:?}", e);
+                return Err(e.into());
+            }
+        }
 
         Ok(())
     }
@@ -158,8 +190,8 @@ pub struct Initialize<'info> {
     #[account(
         init,
         payer = sender,
-        space = 8 + 1 + 8 + 32 + 32 + 32 + 1 + (4 + 50 * (32 + 8 + 8 + 8 + 4 + 8) + 1), // Can take 50 accounts to vest to
-        seeds = [b"lucia_data_account", token_mint.key().as_ref()],
+        space = 8 + 1 + 8 + 32 + 32 + 32 + 8 + 1 + (4 + 50 * (32 + 8 + 8 + 8 + 4 + 8) + 1), // Can take 50 accounts to vest to
+        seeds = [b"data_account", token_mint.key().as_ref()],
         bump
     )]
     pub data_account: Account<'info, DataAccount>,
@@ -167,7 +199,7 @@ pub struct Initialize<'info> {
     #[account(
         init,
         payer = sender,
-        seeds = [b"lucia_escrow_wallet".as_ref(), token_mint.key().as_ref()],
+        seeds = [b"escrow_wallet".as_ref(), token_mint.key().as_ref()],
         bump,
         token::mint = token_mint,
         token::authority = data_account
@@ -196,7 +228,7 @@ pub struct Initialize<'info> {
 pub struct Release<'info> {
     #[account(
         mut,
-        seeds = [b"lucia_data_account", token_mint.key().as_ref()], 
+        seeds = [b"data_account", token_mint.key().as_ref()], 
         bump = data_bump,
         constraint=data_account.initializer == sender.key() @ VestingError::InvalidSender
     )]
@@ -215,14 +247,14 @@ pub struct Release<'info> {
 pub struct Claim<'info> {
     #[account(
         mut,
-        seeds = [b"lucia_data_account", token_mint.key().as_ref()], 
+        seeds = [b"data_account", token_mint.key().as_ref()], 
         bump = data_bump,
     )]
     pub data_account: Account<'info, DataAccount>,
 
     #[account(
         mut,
-        seeds=[b"lucia_escrow_wallet".as_ref(), token_mint.key().as_ref()],
+        seeds = [b"escrow_wallet".as_ref(), token_mint.key().as_ref()],
         bump = wallet_bump,
     )]
     pub escrow_wallet: Account<'info, TokenAccount>,
@@ -240,34 +272,34 @@ pub struct Claim<'info> {
     )]
     pub wallet_to_deposit_to: Account<'info, TokenAccount>,
 
-    pub associated_token_program: Program<'info, AssociatedToken>, // Don't actually use it in the instruction, but used for the wallet_to_deposit_to account
-
+    pub associated_token_program: Program<'info, AssociatedToken>,
     pub token_program: Program<'info, Token>,
-
     pub system_program: Program<'info, System>,
+    pub rent: Sysvar<'info, Rent>,
 }
 
 #[derive(Default, Copy, Clone, AnchorSerialize, AnchorDeserialize, Debug)]
 pub struct Beneficiary {
-    pub key: Pubkey,                   // 32
-    pub allocated_tokens: u64,         // 8
-    pub claimed_tokens: u64,           // 8
-    pub initial_bonus_percentage: f32, // 8
-    pub lockup_period: i64,            // 8
-    pub release_period: i64,           //8
+    pub key: Pubkey, // 32
+    pub allocated_tokens: u64, // 8
+    pub claimed_tokens: u64, // 8
+    pub unlock_tge: f32, // 8
+    pub lockup_period: u64, // 8
+    pub unlock_duration: u64, // 8
 }
 
 #[account]
 #[derive(Default)]
 pub struct DataAccount {
-    // Space in bytes: 8 + 1 + 8 + 32 + 32 + 32 + 1 + (4 + (100 * (32 + 8 + 8 + 8 + 8 + 8)))
-    pub state: u8,                       // 1
-    pub token_amount: u64,               // 8
-    pub initializer: Pubkey,             // 32
-    pub escrow_wallet: Pubkey,           // 32
-    pub token_mint: Pubkey,              // 32
+    // Space in bytes: 8 + 1 + 8 + 32 + 32 + 32 + 8 + 1 + (4 + (100 * (32 + 8 + 8 + 8 + 8 + 8)))
+    pub state: u8, // 1
+    pub token_amount: u64, // 8
+    pub initializer: Pubkey, // 32
+    pub escrow_wallet: Pubkey, // 32
+    pub token_mint: Pubkey, // 32
+    pub initialized_at: u64, // 8
     pub beneficiaries: Vec<Beneficiary>, // (4 + (n * (32 + 8 + 8 + 8 + 8 + 8)))
-    pub decimals: u8,                    // 1
+    pub decimals: u8, // 1
 }
 
 #[error_code]
