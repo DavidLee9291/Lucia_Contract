@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{ self, Mint, Token, TokenAccount, Transfer };
 
-declare_id!("2VYbdzLVgza18y5jABNSZLkvrL1k9ksLCEqSmue1Xq3W");
+declare_id!("CivDkHySv1Ky2jNYmhRhNQw7K42pegVDNMbm3RuUHbSS");
 
 #[program]
 pub mod lucia_vesting {
@@ -60,12 +60,13 @@ pub mod lucia_vesting {
         let escrow_wallet = &mut ctx.accounts.escrow_wallet;
         let data_account = &mut ctx.accounts.data_account;
         let beneficiaries = &data_account.beneficiaries;
-        let token_program = &mut ctx.accounts.token_program;
-        let token_mint_key = &mut ctx.accounts.token_mint.key();
-        let beneficiary_ata = &mut ctx.accounts.wallet_to_deposit_to;
+        let token_program = &ctx.accounts.token_program;
+        let token_mint_key = &ctx.accounts.token_mint.key();
+        let beneficiary_ata = &ctx.accounts.wallet_to_deposit_to;
         let decimals = data_account.decimals;
 
         msg!("Claim Lux!! {:?}", beneficiary_ata);
+
         // Find the beneficiary
         let (index, beneficiary) = beneficiaries
             .iter()
@@ -73,54 +74,89 @@ pub mod lucia_vesting {
             .find(|(_, beneficiary)| beneficiary.key == *sender.to_account_info().key)
             .ok_or(VestingError::BeneficiaryNotFound)?;
 
+        msg!("beneficiary1: {}", beneficiary.key);
+        msg!("sender: {}", *sender.to_account_info().key);
+        msg!("test available token: {}", beneficiary.claimed_tokens);
+
         // Check if the lockup period has expired
         let current_time = Clock::get()?.unix_timestamp as u64;
         let lockup_end_time = data_account.initialized_at + beneficiary.lockup_period;
-        require!(current_time >= lockup_end_time, VestingError::LockupNotExpired);
+        msg!("lockup_end_time : {}", lockup_end_time);
+
+        // 락업 기간이 지나지 않으면 실행하지 않음
+        if current_time < lockup_end_time {
+            msg!("Lockup period has not expired");
+            return Err(VestingError::LockupNotExpired.into());
+        }
 
         // Calculate the unlockable tokens based on the unlock duration and unlockTge
         let time_since_lockup_end = current_time - lockup_end_time;
-        let mut unlockable_tokens = 0;
-        if time_since_lockup_end < beneficiary.unlock_duration {
-            // 첫 번째 달인 경우 unlockTge 비율을 적용
-            unlockable_tokens = (((beneficiary.unlock_tge as f64) / 100.0) *
-                (beneficiary.allocated_tokens as f64)) as u64;
-        } else {
-            // 이후 달은 unlockDuration에 따라 선형적으로 토큰 지급
-            let unlockable_duration = beneficiary.unlock_duration;
-            let unlockable_percentage =
-                (((time_since_lockup_end - unlockable_duration) as f64) /
-                    (unlockable_duration as f64)) *
-                100.0;
-            unlockable_tokens = (((beneficiary.unlock_tge as f64) / 100.0 +
-                unlockable_percentage / 100.0) *
-                (beneficiary.allocated_tokens as f64)) as u64;
+        msg!("time lockup : {}", time_since_lockup_end);
+        msg!("unlock duration : {}", beneficiary.unlock_duration);
+
+        // Calculate the unlockable tokens
+        let mut unlockable_tokens: u64 = 0;
+
+        if time_since_lockup_end >= beneficiary.unlock_duration {
+            // Calculate the number of months since lockup ended
+            let months_passed = (time_since_lockup_end / 2592000) as f64; // Assuming unlock_duration is in seconds
+            msg!("months_passed : {}", months_passed);
+
+            // Calculate the unlockable tokens for each month
+            let tokens_per_month = (beneficiary.allocated_tokens as f64) / 12.0;
+            msg!("tokens_per_month : {}", tokens_per_month);
+
+            // Calculate additional tokens for the first month based on the unlock TGE percentage
+            let unlock_tge_percentage = beneficiary.unlock_tge as f64;
+            let additional_tokens_first_month =
+                (unlock_tge_percentage / 100.0) * (beneficiary.allocated_tokens as f64);
+            msg!("additional_tokens_first_month : {}", additional_tokens_first_month);
+
+            // Calculate total unlockable tokens
+            unlockable_tokens = (tokens_per_month + additional_tokens_first_month) as u64;
         }
+
+        msg!("unlockable tokens : {}", unlockable_tokens);
 
         // Calculate the amount to transfer
         let amount_to_transfer = unlockable_tokens.saturating_sub(beneficiary.claimed_tokens);
-        require!(amount_to_transfer > 0, VestingError::ClaimNotAllowed); // Allowed to claim new tokens
+        msg!("test available token: {}", beneficiary.claimed_tokens);
 
-        // Transfer Logic:
-        let seeds = &["data_account".as_bytes(), token_mint_key.as_ref(), &[data_bump]];
-        let signer_seeds = &[&seeds[..]];
+        msg!("Amount to transfer: {}", amount_to_transfer);
 
-        let transfer_instruction = Transfer {
-            from: escrow_wallet.to_account_info(),
-            to: beneficiary_ata.to_account_info(),
-            authority: data_account.to_account_info(),
-        };
+        // Check if the claimed amount exceeds the previously claimed amount
+        require!(amount_to_transfer > 0, VestingError::ClaimNotAllowed);
 
-        let cpi_ctx = CpiContext::new_with_signer(
-            token_program.to_account_info(),
-            transfer_instruction,
-            signer_seeds
+        let amount_to_transfer_in_smallest_unit = amount_to_transfer.checked_mul(
+            u64::pow(10, decimals as u32)
         );
+        msg!("u64 type : {:?}", amount_to_transfer_in_smallest_unit);
 
-        token::transfer(cpi_ctx, amount_to_transfer * u64::pow(10, decimals as u32))?;
+        if let Some(amount) = amount_to_transfer_in_smallest_unit {
+            // Transfer Logic:
+            let seeds = &["data_account".as_bytes(), token_mint_key.as_ref(), &[data_bump]];
+            let signer_seeds = &[&seeds[..]];
 
-        // Update the claimed tokens for the beneficiary
-        data_account.beneficiaries[index].claimed_tokens += amount_to_transfer;
+            let transfer_instruction = Transfer {
+                from: escrow_wallet.to_account_info(),
+                to: beneficiary_ata.to_account_info(),
+                authority: data_account.to_account_info(),
+            };
+
+            let cpi_ctx = CpiContext::new_with_signer(
+                token_program.to_account_info(),
+                transfer_instruction,
+                signer_seeds
+            );
+
+            token::transfer(cpi_ctx, amount)?;
+
+            // Update the claimed tokens for the beneficiary
+            data_account.beneficiaries[index].claimed_tokens += amount_to_transfer;
+        } else {
+            msg!("Overflow occurred during amount calculation");
+            return Err(VestingError::InvalidArgument.into());
+        }
 
         Ok(())
     }
@@ -253,4 +289,6 @@ pub enum VestingError {
     BeneficiaryNotFound,
     #[msg("Lockup period has not expired yet.")]
     LockupNotExpired,
+    #[msg("Invalid argument encountered")]
+    InvalidArgument,
 }

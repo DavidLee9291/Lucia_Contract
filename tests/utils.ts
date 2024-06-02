@@ -37,7 +37,7 @@ export const createUserAndATA = async (provider: anchor.AnchorProvider, mint: an
     // Create the User, fund with 10 SOL to be able to execute tx's
     const user = anchor.web3.Keypair.generate();
     let token_airdrop = await provider.connection.requestAirdrop(user.publicKey,
-      1 * LAMPORTS_PER_SOL);
+      10 * LAMPORTS_PER_SOL);
   
     const latestBlockHash = await provider.connection.getLatestBlockhash();
   
@@ -81,8 +81,7 @@ export const fundATA = async (provider: anchor.AnchorProvider, mint: anchor.web3
         mint,
         userATA,
         provider.wallet.publicKey,
-        20000 * 10 ** decimals,
-        // 2000000000,
+        20000000000,
         [],
         spl.TOKEN_PROGRAM_ID
       )

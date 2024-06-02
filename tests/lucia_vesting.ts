@@ -15,7 +15,7 @@ describe("lucia_vesting", () => {
   let _dataAccountAfterInit, _dataAccountAfterRelease, _dataAccountAfterClaim; // Used to store State between tests
  
   before(async () => {
-    decimals = 6;
+    decimals = 1;
     mintAddress = await createMint(provider, decimals);
     [sender, senderATA] = await createUserAndATA(provider, mintAddress);
     await fundATA(provider, mintAddress, sender, senderATA, decimals);
@@ -29,10 +29,10 @@ describe("lucia_vesting", () => {
      beneficiaryArray = [
       {
         key: beneficiary.publicKey,
-        allocatedTokens: new anchor.BN(100),
+        allocatedTokens: new anchor.BN(100000000),
         claimedTokens: new anchor.BN(0),
         unlockTge: 10.0, // f32
-        lockupPeriod:new anchor.BN(12 * 30 * 24 * 60 * 60), // u64 (12 months in seconds)
+        lockupPeriod:new anchor.BN(1000000), // u64 (12 months in seconds)
         unlockDuration: new anchor.BN(12 * 30 * 24 * 60 * 60), // u64 (12 months in seconds)
       },
     ];
@@ -40,7 +40,7 @@ describe("lucia_vesting", () => {
 
   it("Test Initialize", async () => {
     // Send initialize transaction  
-    const initTx = await program.methods.initialize(beneficiaryArray, new anchor.BN(1000), decimals).accounts({
+    const initTx = await program.methods.initialize(beneficiaryArray, new anchor.BN(1000000000), decimals).accounts({
       dataAccount: dataAccount,
       escrowWallet: escrowWallet,
       walletToWithdrawFrom: senderATA,
@@ -54,8 +54,8 @@ describe("lucia_vesting", () => {
     
     console.log(`init TX: https://explorer.solana.com/tx/${initTx}?cluster=custom`)
 
-    assert.equal(await getTokenBalanceWeb3(escrowWallet, provider), 1000); // Escrow account receives balance of token
-    assert.equal(accountAfterInit.beneficiaries[0].allocatedTokens, 100); // Tests allocatedTokens field
+    assert.equal(await getTokenBalanceWeb3(escrowWallet, provider), 1000000000); // Escrow account receives balance of token
+    assert.equal(accountAfterInit.beneficiaries[0].allocatedTokens, 100000000); // Tests allocatedTokens field
     
 
     _dataAccountAfterInit = dataAccount;
@@ -105,8 +105,11 @@ describe("lucia_vesting", () => {
 });
 
   it("Test Claim", async () => {
-    // Send initialize transaction  
+    // Send initialize transaction
     dataAccount = _dataAccountAfterRelease;
+
+    // 확인: dataAccount의 데이터가 올바르게 초기화되었는지
+    console.log('Data Account:', dataAccount);
 
     // Claim tokens
     const claimTx = await program.methods.claimLux(dataBump, escrowBump).accounts({
@@ -119,6 +122,7 @@ describe("lucia_vesting", () => {
       tokenProgram: spl.TOKEN_PROGRAM_ID,
       systemProgram: anchor.web3.SystemProgram.programId
     }).signers([beneficiary]).rpc();
+
     console.log(`claim TX: https://explorer.solana.com/tx/${claimTx}?cluster=custom`);
 
     // Wait for the claim transaction to confirm
@@ -127,16 +131,20 @@ describe("lucia_vesting", () => {
     // Retrieve the token balance of the beneficiary's ATA
     const beneficiaryBalance = await getTokenBalanceWeb3(beneficiaryATA, provider);
 
+    console.log('Beneficiary Balance:', beneficiaryBalance.toString());
     // Check if the claimed tokens match the expected amount
-    const expectedClaimAmount = 1; // Expected claim amount
+    const expectedClaimAmount = 18333333; // Expected claim amount
     assert.equal(beneficiaryBalance, expectedClaimAmount, "Beneficiary's token balance does not match expected claim amount");
 
     // Assert that the escrow wallet's token balance has been updated correctly
     const escrowBalance = await getTokenBalanceWeb3(escrowWallet, provider);
-    assert.equal(escrowBalance,30, "Escrow wallet's token balance is incorrect");
+    console.log('Escrow Balance:', escrowBalance);
+    assert.equal(escrowBalance, 981666667, "Escrow wallet's token balance is incorrect");
 
     _dataAccountAfterClaim = dataAccount;
 });
+
+
 
 
   it("Test Double Claim (Should Fail)", async () => {
@@ -157,7 +165,7 @@ describe("lucia_vesting", () => {
     } catch (err) {
       assert.equal(err instanceof AnchorError, true);
       assert.equal(err.error.errorCode.code, "ClaimNotAllowed");
-      assert.equal(await getTokenBalanceWeb3(beneficiaryATA, provider), 1);
+      assert.equal(await getTokenBalanceWeb3(beneficiaryATA, provider), 18333333);
       // Check that error is thrown, that it's the ClaimNotAllowed error, and that the beneficiary's balance has not changed
     }
   });
@@ -183,4 +191,56 @@ describe("lucia_vesting", () => {
       assert.equal(err.error.errorCode.code, "BeneficiaryNotFound");
     }
   });
+
+  it("Test Second Claim After Time Elapsed", async () => {
+    // 클레임 전 escrowWallet의 잔고 조회
+    const initialEscrowBalance = await getTokenBalanceWeb3(escrowWallet, provider);
+
+    // 첫 번째 클레임
+    const claimTx1 = await program.methods.claimLux(dataBump, escrowBump).accounts({
+        dataAccount: dataAccount,
+        escrowWallet: escrowWallet,
+        sender: beneficiary.publicKey,
+        tokenMint: mintAddress,
+        walletToDepositTo: beneficiaryATA,
+        associatedTokenProgram: spl.ASSOCIATED_TOKEN_PROGRAM_ID,
+        tokenProgram: spl.TOKEN_PROGRAM_ID,
+        systemProgram: anchor.web3.SystemProgram.programId
+    }).signers([beneficiary]).rpc();
+
+    // 첫 번째 클레임 후 데이터 얻어오기
+    const dataAccountAfterFirstClaim = await program.account.dataAccount.fetch(dataAccount.publicKey);
+    console.log(`claim TX1: https://explorer.solana.com/tx/${claimTx1}?cluster=custom`);
+
+    // 1달 후 시간 변경
+    const ONE_MONTH_IN_SECONDS = 2592000; // 1달을 초 단위로 표현
+    await provider.connection.confirmTransaction(
+        await provider.connection.transaction().setTimestamp(Date.now() + ONE_MONTH_IN_SECONDS).sign(provider.wallet)
+    );
+
+    // 두 번째 클레임 시도
+    const claimTx2 = await program.methods.claimLux(dataBump, escrowBump).accounts({
+        dataAccount: dataAccount,
+        escrowWallet: escrowWallet,
+        sender: beneficiary.publicKey,
+        tokenMint: mintAddress,
+        walletToDepositTo: beneficiaryATA,
+        associatedTokenProgram: spl.ASSOCIATED_TOKEN_PROGRAM_ID,
+        tokenProgram: spl.TOKEN_PROGRAM_ID,
+        systemProgram: anchor.web3.SystemProgram.programId
+    }).signers([beneficiary]).rpc();
+
+    console.log(`claim TX2: https://explorer.solana.com/tx/${claimTx2}?cluster=custom`);
+
+    // 두 번째 클레임 후 escrowWallet의 잔고 조회
+    const escrowBalanceAfterSecondClaim = await getTokenBalanceWeb3(escrowWallet, provider);
+    console.log(initialEscrowBalance);
+
+    // 첫 번째 클레임 이후와 두 번째 클레임 이후의 escrowWallet 잔고 비교
+    assert.equal(escrowBalanceAfterSecondClaim, "Escrow wallet balance after second claim is incorrect");
+});
+
+
+
+
 });
