@@ -1,8 +1,8 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
-use anchor_spl::token::{ self, Mint, Token, TokenAccount, Transfer };
+use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
-declare_id!("CivDkHySv1Ky2jNYmhRhNQw7K42pegVDNMbm3RuUHbSS");
+declare_id!("c7gzrcsFwZEr4UkyzG9bDdH75kyGaBa8Duj9ts1PTmu");
 
 #[program]
 pub mod lucia_vesting {
@@ -12,11 +12,15 @@ pub mod lucia_vesting {
         ctx: Context<Initialize>,
         beneficiaries: Vec<Beneficiary>,
         amount: u64,
-        decimals: u8
+        decimals: u8,
     ) -> Result<()> {
         let data_account: &mut Account<DataAccount> = &mut ctx.accounts.data_account;
 
-        msg!("Initializing data account with amount: {}, decimals: {}", amount, decimals);
+        msg!(
+            "Initializing data account with amount: {}, decimals: {}",
+            amount,
+            decimals
+        );
         msg!("Beneficiaries: {:?}", beneficiaries);
 
         data_account.beneficiaries = beneficiaries;
@@ -35,10 +39,13 @@ pub mod lucia_vesting {
 
         let cpi_ctx: CpiContext<Transfer> = CpiContext::new(
             ctx.accounts.token_program.to_account_info(),
-            transfer_instruction
+            transfer_instruction,
         );
 
-        token::transfer(cpi_ctx, data_account.token_amount * u64::pow(10, decimals as u32))?;
+        token::transfer(
+            cpi_ctx,
+            data_account.token_amount * u64::pow(10, decimals as u32),
+        )?;
 
         msg!("Token transfer completed");
 
@@ -81,17 +88,17 @@ pub mod lucia_vesting {
         // Check if the lockup period has expired
         let current_time = Clock::get()?.unix_timestamp as u64;
         let lockup_end_time = data_account.initialized_at + beneficiary.lockup_period;
+        msg!("current_time : {}", current_time);
         msg!("lockup_end_time : {}", lockup_end_time);
 
+        // Calculate the unlockable tokens based on the unlock duration and unlockTge
+        let time_since_lockup_end = current_time + lockup_end_time;
+        msg!("time lockup : {}", time_since_lockup_end);
         // 락업 기간이 지나지 않으면 실행하지 않음
-        if current_time < lockup_end_time {
+        if current_time < time_since_lockup_end {
             msg!("Lockup period has not expired");
             return Err(VestingError::LockupNotExpired.into());
         }
-
-        // Calculate the unlockable tokens based on the unlock duration and unlockTge
-        let time_since_lockup_end = current_time - lockup_end_time;
-        msg!("time lockup : {}", time_since_lockup_end);
         msg!("unlock duration : {}", beneficiary.unlock_duration);
 
         // Calculate the unlockable tokens
@@ -110,7 +117,10 @@ pub mod lucia_vesting {
             let unlock_tge_percentage = beneficiary.unlock_tge as f64;
             let additional_tokens_first_month =
                 (unlock_tge_percentage / 100.0) * (beneficiary.allocated_tokens as f64);
-            msg!("additional_tokens_first_month : {}", additional_tokens_first_month);
+            msg!(
+                "additional_tokens_first_month : {}",
+                additional_tokens_first_month
+            );
 
             // Calculate total unlockable tokens
             unlockable_tokens = (tokens_per_month + additional_tokens_first_month) as u64;
@@ -127,14 +137,17 @@ pub mod lucia_vesting {
         // Check if the claimed amount exceeds the previously claimed amount
         require!(amount_to_transfer > 0, VestingError::ClaimNotAllowed);
 
-        let amount_to_transfer_in_smallest_unit = amount_to_transfer.checked_mul(
-            u64::pow(10, decimals as u32)
-        );
+        let amount_to_transfer_in_smallest_unit =
+            amount_to_transfer.checked_mul(u64::pow(10, decimals as u32));
         msg!("u64 type : {:?}", amount_to_transfer_in_smallest_unit);
 
         if let Some(amount) = amount_to_transfer_in_smallest_unit {
             // Transfer Logic:
-            let seeds = &["data_account".as_bytes(), token_mint_key.as_ref(), &[data_bump]];
+            let seeds = &[
+                "data_account".as_bytes(),
+                token_mint_key.as_ref(),
+                &[data_bump],
+            ];
             let signer_seeds = &[&seeds[..]];
 
             let transfer_instruction = Transfer {
@@ -146,7 +159,7 @@ pub mod lucia_vesting {
             let cpi_ctx = CpiContext::new_with_signer(
                 token_program.to_account_info(),
                 transfer_instruction,
-                signer_seeds
+                signer_seeds,
             );
 
             token::transfer(cpi_ctx, amount)?;
@@ -257,26 +270,26 @@ pub struct Claim<'info> {
 
 #[derive(Default, Copy, Clone, AnchorSerialize, AnchorDeserialize, Debug)]
 pub struct Beneficiary {
-    pub key: Pubkey, // 32
+    pub key: Pubkey,           // 32
     pub allocated_tokens: u64, // 8
-    pub claimed_tokens: u64, // 8
-    pub unlock_tge: f32, // 8
-    pub lockup_period: u64, // 8
-    pub unlock_duration: u64, // 8
+    pub claimed_tokens: u64,   // 8
+    pub unlock_tge: f32,       // 8
+    pub lockup_period: u64,    // 8
+    pub unlock_duration: u64,  // 8
 }
 
 #[account]
 #[derive(Default)]
 pub struct DataAccount {
     // Space in bytes: 8 + 1 + 8 + 32 + 32 + 32 + 8 + 1 + (4 + (100 * (32 + 8 + 8 + 8 + 8 + 8)))
-    pub state: u8, // 1
-    pub token_amount: u64, // 8
-    pub initializer: Pubkey, // 32
-    pub escrow_wallet: Pubkey, // 32
-    pub token_mint: Pubkey, // 32
-    pub initialized_at: u64, // 8
+    pub state: u8,                       // 1
+    pub token_amount: u64,               // 8
+    pub initializer: Pubkey,             // 32
+    pub escrow_wallet: Pubkey,           // 32
+    pub token_mint: Pubkey,              // 32
+    pub initialized_at: u64,             // 8
     pub beneficiaries: Vec<Beneficiary>, // (4 + (n * (32 + 8 + 8 + 8 + 8 + 8)))
-    pub decimals: u8, // 1
+    pub decimals: u8,                    // 1
 }
 
 #[error_code]
