@@ -58,7 +58,7 @@ describe("lucia_vesting", () => {
         allocatedTokens: new anchor.BN(100000000),
         claimedTokens: new anchor.BN(0),
         unlockTge: 10.0, // f32
-        lockupPeriod: new anchor.BN(10000), // u64 (12 months in seconds)
+        lockupPeriod: new anchor.BN(0), // u64 (12 months in seconds)
         unlockDuration: new anchor.BN(12 * 30 * 24 * 60 * 60), // u64 (12 months in seconds)
       },
     ];
@@ -88,6 +88,7 @@ describe("lucia_vesting", () => {
 
     assert.equal(await getTokenBalanceWeb3(escrowWallet, provider), 1000000000); // Escrow account receives balance of token
     assert.equal(accountAfterInit.beneficiaries[0].allocatedTokens, 100000000); // Tests allocatedTokens field
+    console.log(dataAccount.ini);
 
     _dataAccountAfterInit = dataAccount;
   });

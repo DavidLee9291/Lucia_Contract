@@ -1,11 +1,14 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
-use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
+use anchor_spl::token::{Mint, Token, TokenAccount};
 
-declare_id!("c7gzrcsFwZEr4UkyzG9bDdH75kyGaBa8Duj9ts1PTmu");
+declare_id!("9nwzzPxW9KkjXM77SKnqaMQKPVU2yDYPX61h85B7L65G");
 
 #[program]
 pub mod lucia_vesting {
+
+    use anchor_spl::token::{self, Transfer};
+
     use super::*;
 
     pub fn initialize(
@@ -30,6 +33,15 @@ pub mod lucia_vesting {
         data_account.initializer = ctx.accounts.sender.to_account_info().key();
         data_account.escrow_wallet = ctx.accounts.escrow_wallet.to_account_info().key();
         data_account.token_mint = ctx.accounts.token_mint.to_account_info().key();
+        data_account.initialized_at = Clock::get()?.unix_timestamp as u64;
+        // LCD - 05
+        data_account.is_initialized = 0; // 계정을 초기화된 상태로 표시
+        msg!("before state : {}", data_account.is_initialized);
+
+        // 계정이 이미 초기화되었는지 확인
+        if data_account.is_initialized == 1 {
+            return Err(VestingError::AlreadyInitialized.into());
+        }
 
         let transfer_instruction: Transfer = Transfer {
             from: ctx.accounts.wallet_to_withdraw_from.to_account_info(),
@@ -46,7 +58,9 @@ pub mod lucia_vesting {
             cpi_ctx,
             data_account.token_amount * u64::pow(10, decimals as u32),
         )?;
-
+        // 초기화 되면 카운팅
+        data_account.is_initialized += 1;
+        msg!("After state : {}", data_account.is_initialized);
         msg!("Token transfer completed");
 
         Ok(())
@@ -57,6 +71,7 @@ pub mod lucia_vesting {
         let data_account: &mut Account<DataAccount> = &mut ctx.accounts.data_account;
 
         data_account.state = state;
+
         msg!("Vesting Start - state : {}", state);
 
         Ok(())
@@ -71,8 +86,20 @@ pub mod lucia_vesting {
         let token_mint_key = &ctx.accounts.token_mint.key();
         let beneficiary_ata = &ctx.accounts.wallet_to_deposit_to;
         let decimals = data_account.decimals;
+        let state = data_account.state;
+        let initialize_at = data_account.initialized_at;
 
         msg!("Claim Lux!! {:?}", beneficiary_ata);
+
+        msg!("initialize_at : {}", initialize_at);
+
+        // LCD - 03
+        // Check if the state variable is 0.
+        // If it is 0, it means the release function has not been called after initialization.
+        if state == 0 {
+            // If the state is 0, return a ReleaseNotCalled error to indicate that the release function has not been called.
+            return Err(VestingError::ReleaseNotCalled.into());
+        }
 
         // Find the beneficiary
         let (index, beneficiary) = beneficiaries
@@ -86,16 +113,17 @@ pub mod lucia_vesting {
         msg!("test available token: {}", beneficiary.claimed_tokens);
 
         // Check if the lockup period has expired
-        let current_time = Clock::get()?.unix_timestamp as u64;
-        let lockup_end_time = data_account.initialized_at + beneficiary.lockup_period;
+        let current_time = Clock::get()?.unix_timestamp as i64;
+        let lockup_end_time = data_account.initialized_at as i64 + beneficiary.lockup_period;
         msg!("current_time : {}", current_time);
         msg!("lockup_end_time : {}", lockup_end_time);
 
         // Calculate the unlockable tokens based on the unlock duration and unlockTge
-        let time_since_lockup_end = current_time + lockup_end_time;
+        let time_since_lockup_end =
+            current_time - (lockup_end_time as i64 + beneficiary.unlock_duration);
         msg!("time lockup : {}", time_since_lockup_end);
         // 락업 기간이 지나지 않으면 실행하지 않음
-        if current_time < time_since_lockup_end {
+        if current_time < lockup_end_time {
             msg!("Lockup period has not expired");
             return Err(VestingError::LockupNotExpired.into());
         }
@@ -186,10 +214,11 @@ pub struct Initialize<'info> {
     )]
     pub data_account: Account<'info, DataAccount>,
 
+    // LCD - 10
     #[account(
         init,
         payer = sender,
-        seeds = [b"escrow_wallet".as_ref(), token_mint.key().as_ref()],
+        seeds = [b"escrow_wallet", token_mint.key().as_ref()],
         bump,
         token::mint = token_mint,
         token::authority = data_account
@@ -274,8 +303,8 @@ pub struct Beneficiary {
     pub allocated_tokens: u64, // 8
     pub claimed_tokens: u64,   // 8
     pub unlock_tge: f32,       // 8
-    pub lockup_period: u64,    // 8
-    pub unlock_duration: u64,  // 8
+    pub lockup_period: i64,    // 8
+    pub unlock_duration: i64,  // 8
 }
 
 #[account]
@@ -290,6 +319,7 @@ pub struct DataAccount {
     pub initialized_at: u64,             // 8
     pub beneficiaries: Vec<Beneficiary>, // (4 + (n * (32 + 8 + 8 + 8 + 8 + 8)))
     pub decimals: u8,                    // 1
+    pub is_initialized: u8,              // 1
 }
 
 #[error_code]
@@ -304,4 +334,10 @@ pub enum VestingError {
     LockupNotExpired,
     #[msg("Invalid argument encountered")]
     InvalidArgument,
+    #[msg("Release function has not been called after initialization.")]
+    ReleaseNotCalled,
+    #[msg("Invalid token mint.")]
+    InvalidTokenMint,
+    #[msg("The program has already been initialized.")]
+    AlreadyInitialized,
 }
