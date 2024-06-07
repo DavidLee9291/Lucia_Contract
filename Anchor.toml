@@ -7,7 +7,7 @@ seeds = false
 skip-lint = false
 
 [programs.localnet]
-lucia_vesting = "9nwzzPxW9KkjXM77SKnqaMQKPVU2yDYPX61h85B7L65G"
+lucia_vesting = "3CpEjzo1XGfJRVvTQQao5CP5bD8r8ApRJPq5ubX7FuES"
 
 [registry]
 url = "https://api.apr.dev"

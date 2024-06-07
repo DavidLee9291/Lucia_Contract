@@ -1,8 +1,9 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{Mint, Token, TokenAccount};
+mod calculate;
 
-declare_id!("9nwzzPxW9KkjXM77SKnqaMQKPVU2yDYPX61h85B7L65G");
+declare_id!("3CpEjzo1XGfJRVvTQQao5CP5bD8r8ApRJPq5ubX7FuES");
 
 #[program]
 pub mod lucia_vesting {
@@ -10,6 +11,8 @@ pub mod lucia_vesting {
     use anchor_spl::token::{self, Transfer};
 
     use super::*;
+
+    use calculate::test1;
 
     pub fn initialize(
         ctx: Context<Initialize>,
@@ -19,6 +22,8 @@ pub mod lucia_vesting {
     ) -> Result<()> {
         let data_account: &mut Account<DataAccount> = &mut ctx.accounts.data_account;
 
+        let text = test1();
+        msg!("description: {}", text);
         msg!(
             "Initializing data account with amount: {}, decimals: {}",
             amount,
@@ -138,7 +143,8 @@ pub mod lucia_vesting {
             msg!("months_passed : {}", months_passed);
 
             // Calculate the unlockable tokens for each month
-            let tokens_per_month = (beneficiary.allocated_tokens as f64) / 12.0;
+            let tokens_per_month =
+                (beneficiary.allocated_tokens as f64) / beneficiary.vesting_end_month;
             msg!("tokens_per_month : {}", tokens_per_month);
 
             // Calculate additional tokens for the first month based on the unlock TGE percentage
@@ -299,12 +305,13 @@ pub struct Claim<'info> {
 
 #[derive(Default, Copy, Clone, AnchorSerialize, AnchorDeserialize, Debug)]
 pub struct Beneficiary {
-    pub key: Pubkey,           // 32
-    pub allocated_tokens: u64, // 8
-    pub claimed_tokens: u64,   // 8
-    pub unlock_tge: f32,       // 8
-    pub lockup_period: i64,    // 8
-    pub unlock_duration: i64,  // 8
+    pub key: Pubkey,            // 32
+    pub allocated_tokens: u64,  // 8
+    pub claimed_tokens: u64,    // 8
+    pub unlock_tge: f32,        // 8
+    pub lockup_period: i64,     // 8
+    pub unlock_duration: i64,   // 8
+    pub vesting_end_month: f64, // 1  개인 만료개월수
 }
 
 #[account]
@@ -320,6 +327,7 @@ pub struct DataAccount {
     pub beneficiaries: Vec<Beneficiary>, // (4 + (n * (32 + 8 + 8 + 8 + 8 + 8)))
     pub decimals: u8,                    // 1
     pub is_initialized: u8,              // 1
+    pub contract_end_month: u8,          // 1 컨트랙트 만료개월수
 }
 
 #[error_code]
