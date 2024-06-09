@@ -7,7 +7,7 @@ seeds = false
 skip-lint = false
 
 [programs.localnet]
-lucia_vesting = "3CpEjzo1XGfJRVvTQQao5CP5bD8r8ApRJPq5ubX7FuES"
+lucia_vesting = "3V3KvTQz94y5TGdYtmwVDSe1aGYjh8m5GGxCvYYQyTXZ"
 
 [registry]
 url = "https://api.apr.dev"
@@ -17,7 +17,7 @@ url = "https://api.apr.dev"
 cluster = "http://localhost:8899"
 # dev
 # cluster = "https://api.devnet.solana.com"
-wallet = "/home/david/.config/solana/id.json"
+wallet = "/Users/david/.config/solana/id.json"
 
 [scripts]
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"

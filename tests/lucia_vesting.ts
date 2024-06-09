@@ -59,7 +59,9 @@ describe("lucia_vesting", () => {
         claimedTokens: new anchor.BN(0),
         unlockTge: 10.0, // f32
         lockupPeriod: new anchor.BN(0), // u64 (12 months in seconds)
-        unlockDuration: new anchor.BN(12 * 30 * 24 * 60 * 60), // u64 (12 months in seconds)
+        unlockDuration: new anchor.BN(365 * 1 * 24 * 60 * 60), // u64 (12 months in seconds)
+        vestingEndMonth: new anchor.BN(12), 
+        confirmRound: new anchor.BN(0),
       },
     ];
   });
@@ -183,7 +185,7 @@ describe("lucia_vesting", () => {
 
     console.log("Beneficiary Balance:", beneficiaryBalance.toString());
     // Check if the claimed tokens match the expected amount
-    const expectedClaimAmount = 18333333; // Expected claim amount
+    const expectedClaimAmount = 8333333; // Expected claim amount
     assert.equal(
       beneficiaryBalance,
       expectedClaimAmount,
@@ -195,7 +197,7 @@ describe("lucia_vesting", () => {
     console.log("Escrow Balance:", escrowBalance);
     assert.equal(
       escrowBalance,
-      981666667,
+      991666667,
       "Escrow wallet's token balance is incorrect"
     );
 
