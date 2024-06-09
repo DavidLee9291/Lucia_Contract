@@ -2,11 +2,15 @@ use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{ self, Mint, Token, TokenAccount, Transfer };
 
-declare_id!("CivDkHySv1Ky2jNYmhRhNQw7K42pegVDNMbm3RuUHbSS");
+mod calculate;
+
+declare_id!("3V3KvTQz94y5TGdYtmwVDSe1aGYjh8m5GGxCvYYQyTXZ");
 
 #[program]
 pub mod lucia_vesting {
     use super::*;
+
+    use calculate::*;
 
     pub fn initialize(
         ctx: Context<Initialize>,
@@ -26,6 +30,15 @@ pub mod lucia_vesting {
         data_account.initializer = ctx.accounts.sender.to_account_info().key();
         data_account.escrow_wallet = ctx.accounts.escrow_wallet.to_account_info().key();
         data_account.token_mint = ctx.accounts.token_mint.to_account_info().key();
+        data_account.initialized_at = Clock::get()?.unix_timestamp as u64;
+        // LCD - 05
+        data_account.is_initialized = 0; // 계정을 초기화된 상태로 표시
+        msg!("before state : {}", data_account.is_initialized);
+
+        // 계정이 이미 초기화되었는지 확인
+        if data_account.is_initialized == 1 {
+            return Err(VestingError::AlreadyInitialized.into());
+        }
 
         let transfer_instruction: Transfer = Transfer {
             from: ctx.accounts.wallet_to_withdraw_from.to_account_info(),
@@ -39,7 +52,9 @@ pub mod lucia_vesting {
         );
 
         token::transfer(cpi_ctx, data_account.token_amount * u64::pow(10, decimals as u32))?;
-
+        // 초기화 되면 카운팅
+        data_account.is_initialized += 1;
+        msg!("After state : {}", data_account.is_initialized);
         msg!("Token transfer completed");
 
         Ok(())
@@ -50,6 +65,7 @@ pub mod lucia_vesting {
         let data_account: &mut Account<DataAccount> = &mut ctx.accounts.data_account;
 
         data_account.state = state;
+
         msg!("Vesting Start - state : {}", state);
 
         Ok(())
@@ -64,99 +80,106 @@ pub mod lucia_vesting {
         let token_mint_key = &ctx.accounts.token_mint.key();
         let beneficiary_ata = &ctx.accounts.wallet_to_deposit_to;
         let decimals = data_account.decimals;
+        let state = data_account.state;
+        let initialize_at = data_account.initialized_at;
 
         msg!("Claim Lux!! {:?}", beneficiary_ata);
 
-        // Find the beneficiary
+        msg!("initialize_at : {}", initialize_at);
+
+        if state == 0 {
+            return Err(VestingError::ReleaseNotCalled.into());
+        }
+
         let (index, beneficiary) = beneficiaries
             .iter()
             .enumerate()
             .find(|(_, beneficiary)| beneficiary.key == *sender.to_account_info().key)
             .ok_or(VestingError::BeneficiaryNotFound)?;
 
-        msg!("beneficiary1: {}", beneficiary.key);
-        msg!("sender: {}", *sender.to_account_info().key);
-        msg!("test available token: {}", beneficiary.claimed_tokens);
+        let allocated_tokens = beneficiary.allocated_tokens;
 
-        // Check if the lockup period has expired
-        let current_time = Clock::get()?.unix_timestamp as u64;
-        let lockup_end_time = data_account.initialized_at + beneficiary.lockup_period;
-        msg!("lockup_end_time : {}", lockup_end_time);
+        let current_time = Clock::get()?.unix_timestamp as i64;
+        let lockup_end_time = (data_account.initialized_at as i64) + beneficiary.lockup_period;
 
-        // 락업 기간이 지나지 않으면 실행하지 않음
         if current_time < lockup_end_time {
             msg!("Lockup period has not expired");
             return Err(VestingError::LockupNotExpired.into());
         }
 
-        // Calculate the unlockable tokens based on the unlock duration and unlockTge
-        let time_since_lockup_end = current_time - lockup_end_time;
-        msg!("time lockup : {}", time_since_lockup_end);
-        msg!("unlock duration : {}", beneficiary.unlock_duration);
+        let vesting_end_month = beneficiary.vesting_end_month;
+        let confirm_round = beneficiary.confirm_round;
 
-        // Calculate the unlockable tokens
-        let mut unlockable_tokens: u64 = 0;
-
-        if time_since_lockup_end >= beneficiary.unlock_duration {
-            // Calculate the number of months since lockup ended
-            let months_passed = (time_since_lockup_end / 2592000) as f64; // Assuming unlock_duration is in seconds
-            msg!("months_passed : {}", months_passed);
-
-            // Calculate the unlockable tokens for each month
-            let tokens_per_month = (beneficiary.allocated_tokens as f64) / 12.0;
-            msg!("tokens_per_month : {}", tokens_per_month);
-
-            // Calculate additional tokens for the first month based on the unlock TGE percentage
-            let unlock_tge_percentage = beneficiary.unlock_tge as f64;
-            let additional_tokens_first_month =
-                (unlock_tge_percentage / 100.0) * (beneficiary.allocated_tokens as f64);
-            msg!("additional_tokens_first_month : {}", additional_tokens_first_month);
-
-            // Calculate total unlockable tokens
-            unlockable_tokens = (tokens_per_month + additional_tokens_first_month) as u64;
-        }
-
-        msg!("unlockable tokens : {}", unlockable_tokens);
-
-        // Calculate the amount to transfer
-        let amount_to_transfer = unlockable_tokens.saturating_sub(beneficiary.claimed_tokens);
-        msg!("test available token: {}", beneficiary.claimed_tokens);
-
-        msg!("Amount to transfer: {}", amount_to_transfer);
-
-        // Check if the claimed amount exceeds the previously claimed amount
-        require!(amount_to_transfer > 0, VestingError::ClaimNotAllowed);
-
-        let amount_to_transfer_in_smallest_unit = amount_to_transfer.checked_mul(
-            u64::pow(10, decimals as u32)
+        let schedule = calculate_schedule(
+            lockup_end_time as i64,
+            vesting_end_month as i64,
+            beneficiary.unlock_duration as i64,
+            allocated_tokens as i64,
+            confirm_round
         );
-        msg!("u64 type : {:?}", amount_to_transfer_in_smallest_unit);
 
-        if let Some(amount) = amount_to_transfer_in_smallest_unit {
-            // Transfer Logic:
-            let seeds = &["data_account".as_bytes(), token_mint_key.as_ref(), &[data_bump]];
-            let signer_seeds = &[&seeds[..]];
+        let mut total_claimable_tokens: u64 = 0;
 
-            let transfer_instruction = Transfer {
-                from: escrow_wallet.to_account_info(),
-                to: beneficiary_ata.to_account_info(),
-                authority: data_account.to_account_info(),
-            };
+        for item in schedule {
+            let item1 = &item.0;
+            let item2 = item.1;
+            let item3 = item.2;
 
-            let cpi_ctx = CpiContext::new_with_signer(
-                token_program.to_account_info(),
-                transfer_instruction,
-                signer_seeds
-            );
-
-            token::transfer(cpi_ctx, amount)?;
-
-            // Update the claimed tokens for the beneficiary
-            data_account.beneficiaries[index].claimed_tokens += amount_to_transfer;
-        } else {
-            msg!("Overflow occurred during amount calculation");
-            return Err(VestingError::InvalidArgument.into());
+            let round_num = item1.split(": ").nth(1).unwrap().parse::<u64>().unwrap();
+            if current_time >= item2 && (confirm_round as u8) <= (round_num as u8) {
+                msg!(
+                    "토큰 청구 가능:  {}, timestamp: {}, claimable_token: {}",
+                    item1,
+                    item2,
+                    item3
+                );
+                total_claimable_tokens += item3 as u64;
+            } else {
+                msg!(
+                    "토큰 청구 불가능:  {}, timestamp: {}, claimable_token: {}",
+                    item1,
+                    item2,
+                    item3
+                );
+            }
         }
+
+        if total_claimable_tokens > 0 {
+            msg!("총 청구 가능한 토큰: {}", total_claimable_tokens);
+        }
+
+        let amount_to_transfer = match
+            total_claimable_tokens.checked_mul(u64::pow(10, decimals as u32))
+        {
+            Some(value) => value,
+            None => {
+                msg!("Overflow occurred during amount calculation");
+                return Err(VestingError::InvalidArgument.into());
+            }
+        };
+
+        msg!("전송할 금액: {}", amount_to_transfer);
+
+        let seeds = &["data_account".as_bytes(), token_mint_key.as_ref(), &[data_bump]];
+        let signer_seeds = &[&seeds[..]];
+
+        let transfer_instruction = Transfer {
+            from: escrow_wallet.to_account_info(),
+            to: beneficiary_ata.to_account_info(),
+            authority: data_account.to_account_info(),
+        };
+
+        let cpi_ctx = CpiContext::new_with_signer(
+            token_program.to_account_info(),
+            transfer_instruction,
+            signer_seeds
+        );
+
+        token::transfer(cpi_ctx, amount_to_transfer)?;
+
+        data_account.beneficiaries[index].claimed_tokens += amount_to_transfer;
+
+        msg!("TEST: {}", amount_to_transfer);
 
         Ok(())
     }
@@ -173,10 +196,11 @@ pub struct Initialize<'info> {
     )]
     pub data_account: Account<'info, DataAccount>,
 
+    // LCD - 10
     #[account(
         init,
         payer = sender,
-        seeds = [b"escrow_wallet".as_ref(), token_mint.key().as_ref()],
+        seeds = [b"escrow_wallet", token_mint.key().as_ref()],
         bump,
         token::mint = token_mint,
         token::authority = data_account
@@ -261,8 +285,10 @@ pub struct Beneficiary {
     pub allocated_tokens: u64, // 8
     pub claimed_tokens: u64, // 8
     pub unlock_tge: f32, // 8
-    pub lockup_period: u64, // 8
+    pub lockup_period: i64, // 8
     pub unlock_duration: u64, // 8
+    pub vesting_end_month: u64, // 8
+    pub confirm_round: u8, // 1
 }
 
 #[account]
@@ -277,6 +303,8 @@ pub struct DataAccount {
     pub initialized_at: u64, // 8
     pub beneficiaries: Vec<Beneficiary>, // (4 + (n * (32 + 8 + 8 + 8 + 8 + 8)))
     pub decimals: u8, // 1
+    pub is_initialized: u8, // 1
+    pub contract_end_month: u8, // 1
 }
 
 #[error_code]
@@ -291,4 +319,10 @@ pub enum VestingError {
     LockupNotExpired,
     #[msg("Invalid argument encountered")]
     InvalidArgument,
+    #[msg("Release function has not been called after initialization.")]
+    ReleaseNotCalled,
+    #[msg("Invalid token mint.")]
+    InvalidTokenMint,
+    #[msg("The program has already been initialized.")]
+    AlreadyInitialized,
 }
