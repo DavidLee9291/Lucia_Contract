@@ -26,7 +26,9 @@ describe("lucia_vesting", () => {
     beneficiary,
     beneficiaryATA,
     beneficiaryArray,
-    decimals;
+    decimals,
+    tokenIssuer,
+    tokenIssuerBump;
 
   let _dataAccountAfterInit, _dataAccountAfterRelease, _dataAccountAfterClaim; // Used to store State between tests
 
@@ -45,6 +47,10 @@ describe("lucia_vesting", () => {
       [Buffer.from("escrow_wallet"), mintAddress.toBuffer()],
       program.programId
     );
+  //  [tokenIssuer, tokenIssuerBump] = await createPDA(
+  //     [Buffer.from("token_issuer"), mintAddress.toBuffer()],
+  //     program.programId
+  //   );
 
     // Create a test Beneficiary object to send into contract
     [beneficiary, beneficiaryATA] = await createUserAndATA(
@@ -75,6 +81,7 @@ describe("lucia_vesting", () => {
         escrowWallet: escrowWallet,
         walletToWithdrawFrom: senderATA,
         tokenMint: mintAddress,
+        // tokenIssuer: tokenIssuer,
         sender: sender.publicKey,
         systemProgram: anchor.web3.SystemProgram.programId,
         tokenProgram: spl.TOKEN_PROGRAM_ID,

@@ -1,5 +1,6 @@
 use chrono::{ Duration, Utc, TimeZone };
 
+// LCD-02
 pub fn calculate_schedule(
     start_time: i64,
     vesting_end_month: i64,
@@ -16,7 +17,18 @@ pub fn calculate_schedule(
         let unlock_time =
             start_date + Duration::seconds((unlock_duration * (i as i64)) / vesting_end_month);
 
+        // LCD - 09
+        // Ensure allocated_tokens and vesting_end_month are positive to avoid unexpected behavior
+        if allocated_tokens < 0 || vesting_end_month <= 0 {
+            panic!("Invalid allocated_tokens or vesting_end_month");
+        }
+
+        // Check for overflow before casting
         let claimable_token = (allocated_tokens as f64) / (vesting_end_month as f64);
+        if claimable_token < 0.0 || claimable_token.is_infinite() || claimable_token.is_nan() {
+            panic!("Invalid claimable_token calculated");
+        }
+
         let claim_token_round = format!("Round : {}", i);
         let time_round = unlock_time.timestamp();
         let schedule_item = (claim_token_round, time_round, claimable_token as f64);
