@@ -1,10 +1,10 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
-use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
+use anchor_spl::token::{ self, Mint, Token, TokenAccount, Transfer };
 
 mod calculate;
 
-declare_id!("4Xzq6DBb2C4xTGB3E4MrWnskhDX1tLqCrPF5Ucn6yu2c");
+declare_id!("CjFsCPHNNufM5rcqkRECsChw8rcbRbe3mxbG2SDo2VfQ");
 
 #[program]
 pub mod lucia_vesting {
@@ -17,7 +17,7 @@ pub mod lucia_vesting {
         ctx: Context<Initialize>,
         beneficiaries: Vec<Beneficiary>,
         amount: u64,
-        decimals: u8,
+        decimals: u8
     ) -> Result<()> {
         let data_account: &mut Account<DataAccount> = &mut ctx.accounts.data_account;
 
@@ -25,11 +25,7 @@ pub mod lucia_vesting {
         if data_account.is_initialized == 1 {
             return Err(VestingError::AlreadyInitialized.into());
         }
-        msg!(
-            "Initializing data account with amount: {}, decimals: {}",
-            amount,
-            decimals
-        );
+        msg!("Initializing data account with amount: {}, decimals: {}", amount, decimals);
         msg!("Beneficiaries: {:?}", beneficiaries);
 
         // Validate inputs
@@ -67,13 +63,10 @@ pub mod lucia_vesting {
 
         let cpi_ctx = CpiContext::new(
             ctx.accounts.token_program.to_account_info(),
-            transfer_instruction,
+            transfer_instruction
         );
 
-        token::transfer(
-            cpi_ctx,
-            data_account.token_amount * u64::pow(10, decimals as u32),
-        )?;
+        token::transfer(cpi_ctx, data_account.token_amount * u64::pow(10, decimals as u32))?;
         data_account.is_initialized += 1; // Mark account as initialized
 
         msg!("After state: {}", data_account.is_initialized);
@@ -138,7 +131,7 @@ pub mod lucia_vesting {
             vesting_end_month as i64,
             beneficiary.unlock_duration as i64,
             allocated_tokens as i64,
-            confirm_round,
+            confirm_round
         );
 
         let mut total_claimable_tokens: u64 = 0;
@@ -177,11 +170,7 @@ pub mod lucia_vesting {
 
         msg!("Amount to transfer: {}", amount_to_transfer);
 
-        let seeds = &[
-            "data_account".as_bytes(),
-            token_mint_key.as_ref(),
-            &[data_bump],
-        ];
+        let seeds = &["data_account".as_bytes(), token_mint_key.as_ref(), &[data_bump]];
         let signer_seeds = &[&seeds[..]];
 
         let transfer_instruction = Transfer {
@@ -193,7 +182,7 @@ pub mod lucia_vesting {
         let cpi_ctx = CpiContext::new_with_signer(
             token_program.to_account_info(),
             transfer_instruction,
-            signer_seeds,
+            signer_seeds
         );
 
         token::transfer(cpi_ctx, amount_to_transfer).map_err(|err| {
@@ -245,7 +234,6 @@ pub struct Initialize<'info> {
 
     pub token_mint: Account<'info, Mint>, // Token mint account
 
-    // address = Pubkey::from_str(TOKEN_MINT_ADDRESS).unwrap()
     #[account(mut)]
     pub sender: Signer<'info>, // Signer account
 
@@ -314,30 +302,30 @@ pub struct Claim<'info> {
 // Struct to represent each beneficiary
 #[derive(Default, Copy, Clone, AnchorSerialize, AnchorDeserialize, Debug)]
 pub struct Beneficiary {
-    pub key: Pubkey,            // Beneficiary's public key
-    pub allocated_tokens: u64,  // Tokens allocated to the beneficiary
-    pub claimed_tokens: u64,    // Tokens claimed by the beneficiary
-    pub unlock_tge: f32,        // Unlock percentage at TGE (Token Generation Event)
-    pub lockup_period: i64,     // Lockup period in seconds
-    pub unlock_duration: u64,   // Unlock duration in seconds
+    pub key: Pubkey, // Beneficiary's public key
+    pub allocated_tokens: u64, // Tokens allocated to the beneficiary
+    pub claimed_tokens: u64, // Tokens claimed by the beneficiary
+    pub unlock_tge: f32, // Unlock percentage at TGE (Token Generation Event)
+    pub lockup_period: i64, // Lockup period in seconds
+    pub unlock_duration: u64, // Unlock duration in seconds
     pub vesting_end_month: u64, // Vesting end month
-    pub confirm_round: u8,      // Confirmation round
+    pub confirm_round: u8, // Confirmation round
 }
 
 // Struct to represent the data account
 #[account]
 #[derive(Default)]
 pub struct DataAccount {
-    pub state: u8,                       // State of the vesting contract
-    pub token_amount: u64,               // Total token amount
-    pub initializer: Pubkey,             // Public key of the initializer
-    pub escrow_wallet: Pubkey,           // Public key of the escrow wallet
-    pub token_mint: Pubkey,              // Public key of the token mint
-    pub initialized_at: u64,             // Initialization timestamp
+    pub state: u8, // State of the vesting contract
+    pub token_amount: u64, // Total token amount
+    pub initializer: Pubkey, // Public key of the initializer
+    pub escrow_wallet: Pubkey, // Public key of the escrow wallet
+    pub token_mint: Pubkey, // Public key of the token mint
+    pub initialized_at: u64, // Initialization timestamp
     pub beneficiaries: Vec<Beneficiary>, // List of beneficiaries
-    pub decimals: u8,                    // Token decimals
-    pub is_initialized: u8,              // Flag to check if account is initialized
-    pub contract_end_month: u8,          // Contract end month
+    pub decimals: u8, // Token decimals
+    pub is_initialized: u8, // Flag to check if account is initialized
+    pub contract_end_month: u8, // Contract end month
 }
 
 // Enum to represent errors

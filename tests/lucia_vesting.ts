@@ -27,17 +27,11 @@ describe("lucia_vesting", () => {
     beneficiary,
     beneficiaryATA,
     beneficiaryArray,
-    decimals,
-    payer,
-    address,
-    tokenIssuerBump;
+    decimals;
 
   let _dataAccountAfterInit, _dataAccountAfterRelease, _dataAccountAfterClaim; // Used to store State between tests
 
   before(async () => {
-    payer = new anchor.web3.PublicKey(
-      "3hYoanW7rvtXhbw8pJdM8CJagWHqnbnM13x6kVZzU5u9"
-    );
     decimals = 1;
     mintAddress = await createMint(provider, decimals);
     [sender, senderATA] = await createUserAndATA(provider, mintAddress);
@@ -52,10 +46,6 @@ describe("lucia_vesting", () => {
       [Buffer.from("escrow_wallet"), mintAddress.toBuffer()],
       program.programId
     );
-    //  [tokenIssuer, tokenIssuerBump] = await createPDA(
-    //     [Buffer.from("token_issuer"), mintAddress.toBuffer()],
-    //     program.programId
-    //   );
 
     // Create a test Beneficiary object to send into contract
     [beneficiary, beneficiaryATA] = await createUserAndATA(
@@ -75,23 +65,45 @@ describe("lucia_vesting", () => {
         confirmRound: new anchor.BN(0),
       },
     ];
+
+    // LCD - 05 TEST CODE
+    // Uncomment to create an initialized account.
+    //    const initTx = await program.methods
+    //     .initialize(beneficiaryArray, new anchor.BN(0), decimals)
+    //     .accounts({
+    //       dataAccount: dataAccount,
+    //       escrowWallet: escrowWallet,
+    //       walletToWithdrawFrom: senderATA,
+    //       tokenMint: mintAddress,
+    //       sender: sender.publicKey,
+    //       systemProgram: anchor.web3.SystemProgram.programId,
+    //       tokenProgram: spl.TOKEN_PROGRAM_ID,
+    //     })
+    //     .signers([sender])
+    //      .rpc();
+      
+    //  console.log(
+    //     `initialized TX: https://explorer.solana.com/tx/${initTx}?cluster=custom`
+    //  );
+   
+
+   
   });
 
   it("Test Initialize", async () => {
     // Send initialize transaction
     const initTx = await program.methods
-      .initialize(beneficiaryArray, new anchor.BN(1000000000), decimals)
+      .initialize(beneficiaryArray, new anchor.BN(0), decimals)
       .accounts({
         dataAccount: dataAccount,
         escrowWallet: escrowWallet,
         walletToWithdrawFrom: senderATA,
         tokenMint: mintAddress,
-        // tokenIssuer: tokenIssuer,
-        sender: sender,
+        sender: sender.publicKey,
         systemProgram: anchor.web3.SystemProgram.programId,
         tokenProgram: spl.TOKEN_PROGRAM_ID,
       })
-      .signers([payer])
+      .signers([sender])
       .rpc();
 
     let accountAfterInit = await program.account.dataAccount.fetch(dataAccount);
@@ -103,7 +115,7 @@ describe("lucia_vesting", () => {
     assert.equal(await getTokenBalanceWeb3(escrowWallet, provider), 1000000000); // Escrow account receives balance of token
     assert.equal(accountAfterInit.beneficiaries[0].allocatedTokens, 100000000); // Tests allocatedTokens field
     console.log(dataAccount.ini);
-
+    // assert.equal(accountAfterInit.isInitialized, 1);
     _dataAccountAfterInit = dataAccount;
   });
 
