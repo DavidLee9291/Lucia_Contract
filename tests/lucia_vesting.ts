@@ -10,6 +10,7 @@ import {
   getTokenBalanceWeb3,
   createPDA,
 } from "./utils";
+import { PublicKey } from "@solana/web3.js";
 
 describe("lucia_vesting", () => {
   const provider = anchor.AnchorProvider.env();
@@ -27,12 +28,16 @@ describe("lucia_vesting", () => {
     beneficiaryATA,
     beneficiaryArray,
     decimals,
-    tokenIssuer,
+    payer,
+    address,
     tokenIssuerBump;
 
   let _dataAccountAfterInit, _dataAccountAfterRelease, _dataAccountAfterClaim; // Used to store State between tests
 
   before(async () => {
+    payer = new anchor.web3.PublicKey(
+      "3hYoanW7rvtXhbw8pJdM8CJagWHqnbnM13x6kVZzU5u9"
+    );
     decimals = 1;
     mintAddress = await createMint(provider, decimals);
     [sender, senderATA] = await createUserAndATA(provider, mintAddress);
@@ -47,10 +52,10 @@ describe("lucia_vesting", () => {
       [Buffer.from("escrow_wallet"), mintAddress.toBuffer()],
       program.programId
     );
-  //  [tokenIssuer, tokenIssuerBump] = await createPDA(
-  //     [Buffer.from("token_issuer"), mintAddress.toBuffer()],
-  //     program.programId
-  //   );
+    //  [tokenIssuer, tokenIssuerBump] = await createPDA(
+    //     [Buffer.from("token_issuer"), mintAddress.toBuffer()],
+    //     program.programId
+    //   );
 
     // Create a test Beneficiary object to send into contract
     [beneficiary, beneficiaryATA] = await createUserAndATA(
@@ -66,7 +71,7 @@ describe("lucia_vesting", () => {
         unlockTge: 10.0, // f32
         lockupPeriod: new anchor.BN(0), // u64 (12 months in seconds)
         unlockDuration: new anchor.BN(365 * 1 * 24 * 60 * 60), // u64 (12 months in seconds)
-        vestingEndMonth: new anchor.BN(12), 
+        vestingEndMonth: new anchor.BN(12),
         confirmRound: new anchor.BN(0),
       },
     ];
@@ -82,11 +87,11 @@ describe("lucia_vesting", () => {
         walletToWithdrawFrom: senderATA,
         tokenMint: mintAddress,
         // tokenIssuer: tokenIssuer,
-        sender: sender.publicKey,
+        sender: sender,
         systemProgram: anchor.web3.SystemProgram.programId,
         tokenProgram: spl.TOKEN_PROGRAM_ID,
       })
-      .signers([sender])
+      .signers([payer])
       .rpc();
 
     let accountAfterInit = await program.account.dataAccount.fetch(dataAccount);
