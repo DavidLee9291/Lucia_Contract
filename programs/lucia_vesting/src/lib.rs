@@ -4,7 +4,7 @@ use anchor_spl::token::{ self, Mint, Token, TokenAccount, Transfer };
 
 mod calculate;
 
-declare_id!("CjFsCPHNNufM5rcqkRECsChw8rcbRbe3mxbG2SDo2VfQ");
+declare_id!("5av8PKb5qsdtjavm3EEHeiiMvm5pFJxPrxmPQ1d38vXM");
 
 #[program]
 pub mod lucia_vesting {
@@ -25,9 +25,11 @@ pub mod lucia_vesting {
         if data_account.is_initialized == 1 {
             return Err(VestingError::AlreadyInitialized.into());
         }
+
         msg!("Initializing data account with amount: {}, decimals: {}", amount, decimals);
         msg!("Beneficiaries: {:?}", beneficiaries);
 
+        // LCD - 07
         // Validate inputs
         if ctx.accounts.token_mint.decimals != decimals {
             return Err(VestingError::InvalidDecimals.into());
@@ -37,7 +39,6 @@ pub mod lucia_vesting {
             return Err(VestingError::InsufficientFunds.into());
         }
 
-        // LCD - 07
         if beneficiaries.len() > 50 {
             return Err(VestingError::TooManyBeneficiaries.into());
         }
@@ -124,6 +125,7 @@ pub mod lucia_vesting {
 
         let vesting_end_month = beneficiary.vesting_end_month;
         let confirm_round = beneficiary.confirm_round;
+        let unlock_tge = beneficiary.unlock_tge;
 
         // LCD - 02
         let schedule = calculate_schedule(
@@ -131,6 +133,7 @@ pub mod lucia_vesting {
             vesting_end_month as i64,
             beneficiary.unlock_duration as i64,
             allocated_tokens as i64,
+            unlock_tge,
             confirm_round
         );
 
@@ -138,22 +141,48 @@ pub mod lucia_vesting {
 
         for item in schedule {
             let round_num = item.0.split(": ").nth(1).unwrap().parse::<u64>().unwrap();
+
+            // Check if the current time is greater than or equal to the unlock time and round_num is valid
             if current_time >= item.1 && (confirm_round as u64) <= round_num {
                 msg!(
-                    "Tokens claimable: {}, timestamp: {}, claimable_token: {}",
+                    "Tokens claimable: {}, timestamp: {}, claimable_token: {}, first_time_bonus_token: {}",
                     item.0,
                     item.1,
-                    item.2
+                    item.2,
+                    item.3
                 );
-                total_claimable_tokens += item.2 as u64;
+                // LCD - 09
+                // Ensure claimable_token is within the bounds of u64 before adding
+                let claimable_token_u64 = if item.2 >= 0.0 && item.2 <= (u64::MAX as f64) {
+                    item.2 as u64
+                } else {
+                    panic!("Invalid claimable_token value");
+                };
+
+                // Ensure first_time_bonus is within the bounds of u64 before adding
+                let first_time_bonus_u64 = if item.3 >= 0.0 && item.3 <= (u64::MAX as f64) {
+                    item.3 as u64
+                } else {
+                    panic!("Invalid first_time_bonus value");
+                };
+
+                total_claimable_tokens = total_claimable_tokens
+                    .checked_add(claimable_token_u64)
+                    .ok_or(VestingError::Overflow)?;
+
+                total_claimable_tokens = total_claimable_tokens
+                    .checked_add(first_time_bonus_u64)
+                    .ok_or(VestingError::Overflow)?;
             } else {
                 msg!(
-                    "Tokens not claimable: {}, timestamp: {}, claimable_token: {}",
+                    "Tokens not claimable: {}, timestamp: {}, claimable_token: {}, first_time_bonus_token: {}",
                     item.0,
                     item.1,
-                    item.2
+                    item.2,
+                    item.3
                 );
             }
+
             // LCD - 06
             if vesting_end_month == round_num && current_time > item.1 {
                 msg!("Vesting has ended, no more tokens can be claimed.");
@@ -164,6 +193,7 @@ pub mod lucia_vesting {
             msg!("Total claimable tokens: {}", total_claimable_tokens);
         }
 
+        // Ensure total_claimable_tokens is within the bounds of u64 before calculating amount_to_transfer
         let amount_to_transfer = total_claimable_tokens
             .checked_mul(u64::pow(10, decimals as u32))
             .ok_or(VestingError::Overflow)?;
@@ -364,4 +394,10 @@ pub enum VestingError {
     InsufficientFunds,
     #[msg("Overflow: An overflow occurred during calculations.")]
     Overflow,
+
+    #[msg("Invalid token mint decimals")]
+    InvalidDecimalMismatch,
+
+    #[msg("Insufficient token amount")]
+    InsufficientTokenAmount,
 }

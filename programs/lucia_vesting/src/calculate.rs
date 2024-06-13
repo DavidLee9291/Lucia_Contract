@@ -1,42 +1,60 @@
-use chrono::{Duration, TimeZone, Utc};
-
 // LCD-02
 pub fn calculate_schedule(
     start_time: i64,
     vesting_end_month: i64,
     unlock_duration: i64,
     allocated_tokens: i64,
-    confirm_round: u8,
-) -> Vec<(String, i64, f64)> {
+    unlock_tge: f32,
+    confirm_round: u8
+) -> Vec<(String, i64, f64, f64)> {
     let mut schedule = Vec::new();
-    // LCD - 02
-    let start_date = Utc
-        .timestamp_opt(start_time, 0)
-        .single()
-        .expect("Invalid timestamp");
-
     let start_round = confirm_round as i64;
 
-    // LCD - 09
-    // Ensure allocated_tokens and vesting_end_month are positive to avoid unexpected behavior
-    if allocated_tokens < 0 || vesting_end_month <= 0 {
-        panic!("Invalid allocated_tokens or vesting_end_month");
+    // LDL - 01
+    // Calculate first_time_bonus if unlock_tge is greater than 0.0
+    let mut remaining_tokens = allocated_tokens;
+    let first_time_bonus = if unlock_tge > 0.0 {
+        let bonus = allocated_tokens / (unlock_tge as i64);
+        remaining_tokens -= bonus;
+        bonus
+    } else {
+        0
+    };
+    // LCL - 01
+    // Calculate claimable_token per month excluding the first_time_bonus
+    let claimable_token = (remaining_tokens as f64) / (vesting_end_month as f64);
+
+    // Ensure remaining_tokens and vesting_end_month are positive to avoid unexpected behavior
+    if remaining_tokens < 0 || vesting_end_month <= 0 {
+        panic!("Invalid remaining_tokens or vesting_end_month");
     }
+
     // Check for overflow before casting
-    let claimable_token = (allocated_tokens as f64) / (vesting_end_month as f64);
     if claimable_token < 0.0 || claimable_token.is_infinite() || claimable_token.is_nan() {
         panic!("Invalid claimable_token calculated");
     }
 
     for i in start_round..vesting_end_month + 1 {
-        let unlock_time =
-            start_date + Duration::seconds((unlock_duration * (i as i64)) / vesting_end_month);
+        // LCL - 02
+        let unlock_time = start_time + (unlock_duration * (i as i64)) / vesting_end_month;
+
+        // Add first_time_bonus only for the first month
+        let total_claimable = if i == start_round && unlock_tge != 0.0 {
+            claimable_token + (first_time_bonus as f64)
+        } else {
+            claimable_token
+        };
 
         let claim_token_round = format!("Round : {}", i);
-        let time_round = unlock_time.timestamp();
-        let schedule_item = (claim_token_round, time_round, claimable_token as f64);
+        let schedule_item = (
+            claim_token_round,
+            unlock_time,
+            total_claimable,
+            if i == start_round { first_time_bonus as f64 } else { 0.0 },
+        );
 
         schedule.push(schedule_item);
     }
-    return schedule;
+
+    schedule
 }

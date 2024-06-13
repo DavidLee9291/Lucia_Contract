@@ -93,7 +93,7 @@ describe("lucia_vesting", () => {
   it("Test Initialize", async () => {
     // Send initialize transaction
     const initTx = await program.methods
-      .initialize(beneficiaryArray, new anchor.BN(0), decimals)
+      .initialize(beneficiaryArray, new anchor.BN(1000000000), decimals)
       .accounts({
         dataAccount: dataAccount,
         escrowWallet: escrowWallet,
