@@ -4,7 +4,7 @@ use anchor_spl::token::{ self, Mint, Token, TokenAccount, Transfer };
 
 mod calculate;
 
-declare_id!("5av8PKb5qsdtjavm3EEHeiiMvm5pFJxPrxmPQ1d38vXM");
+declare_id!("5ZKdCPumGbSRB7f48GKSDPhwiZzkjMMh6XBpkuHCeLm6");
 
 #[program]
 pub mod lucia_vesting {
@@ -25,6 +25,9 @@ pub mod lucia_vesting {
         if data_account.is_initialized == 1 {
             return Err(VestingError::AlreadyInitialized.into());
         }
+
+        // LCD - 04
+        data_account.time_lock_end = Clock::get()?.unix_timestamp + 48 * 60 * 60;
 
         msg!("Initializing data account with amount: {}, decimals: {}", amount, decimals);
         msg!("Beneficiaries: {:?}", beneficiaries);
@@ -79,6 +82,15 @@ pub mod lucia_vesting {
     // Release function to update the state of the vesting contract
     pub fn release_lucia_vesting(ctx: Context<Release>, _data_bump: u8, state: u8) -> Result<()> {
         let data_account: &mut Account<DataAccount> = &mut ctx.accounts.data_account;
+
+        // 현재 시간 가져오기
+        let current_time = Clock::get()?.unix_timestamp;
+
+        // 타임락이 끝나지 않았으면 에러 반환
+        if current_time < data_account.time_lock_end {
+            msg!("Timelock has not expired yet");
+            return Err(VestingError::TimelockNotExpired.into());
+        }
 
         data_account.state = state;
 
@@ -356,6 +368,7 @@ pub struct DataAccount {
     pub beneficiaries: Vec<Beneficiary>, // List of beneficiaries (4 + 50 * (32 + 8 + 8 + 4 + 8 + 8 + 8 + 1)) 3850
     pub decimals: u8, // Token decimals 1
     pub is_initialized: u8, // Flag to check if account is initialized 1
+    pub time_lock_end: i64, // Timestamp until which the contract is locked
 }
 
 // Enum to represent errors
@@ -400,4 +413,7 @@ pub enum VestingError {
 
     #[msg("Insufficient token amount")]
     InsufficientTokenAmount,
+
+    #[msg("Timelock has not expired yet.")]
+    TimelockNotExpired,
 }
