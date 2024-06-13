@@ -209,14 +209,7 @@ pub struct Initialize<'info> {
         init,
         payer = sender,
         // LCD - 11
-        space = 8 +
-        1 +
-        8 +
-        32 +
-        32 +
-        32 +
-        8 +
-        (4 + 50 * (32 + 8 + 8 + 4 + 8 + 8 + 8 + 1) + 1 + 1 + 1), // 3857
+        space = 8 + 1 + 8 + 32 + 32 + 32 + 8 + (4 + 50 * (32 + 8 + 8 + 4 + 8 + 8 + 8 + 1) + 1 + 1), // 3973
         seeds = [b"data_account", token_mint.key().as_ref()],
         bump
     )]
@@ -330,10 +323,9 @@ pub struct DataAccount {
     pub escrow_wallet: Pubkey, // Public key of the escrow wallet 32
     pub token_mint: Pubkey, // Public key of the token mint 32
     pub initialized_at: u64, // Initialization timestamp 8
-    pub beneficiaries: Vec<Beneficiary>, // List of beneficiaries (4 + 50 * (32 + 8 + 8 + 4 + 8 + 8 + 8 + 1)) 3854
+    pub beneficiaries: Vec<Beneficiary>, // List of beneficiaries (4 + 50 * (32 + 8 + 8 + 4 + 8 + 8 + 8 + 1)) 3850
     pub decimals: u8, // Token decimals 1
     pub is_initialized: u8, // Flag to check if account is initialized 1
-    pub contract_end_month: u8, // Contract end month 1
 }
 
 // Enum to represent errors
