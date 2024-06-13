@@ -83,10 +83,8 @@ pub mod lucia_vesting {
     pub fn release_lucia_vesting(ctx: Context<Release>, _data_bump: u8, state: u8) -> Result<()> {
         let data_account: &mut Account<DataAccount> = &mut ctx.accounts.data_account;
 
-        // 현재 시간 가져오기
         let current_time = Clock::get()?.unix_timestamp;
 
-        // 타임락이 끝나지 않았으면 에러 반환
         if current_time < data_account.time_lock_end {
             msg!("Timelock has not expired yet");
             return Err(VestingError::TimelockNotExpired.into());
@@ -251,7 +249,14 @@ pub struct Initialize<'info> {
         init,
         payer = sender,
         // LCD - 11
-        space = 8 + 1 + 8 + 32 + 32 + 32 + 8 + (4 + 50 * (32 + 8 + 8 + 4 + 8 + 8 + 8 + 1) + 1 + 1), // 3973
+        space = 8 +
+        1 +
+        8 +
+        32 +
+        32 +
+        32 +
+        8 +
+        (4 + 50 * (32 + 8 + 8 + 4 + 8 + 8 + 8 + 1) + 1 + 1 + 1), // 3974
         seeds = [b"data_account", token_mint.key().as_ref()],
         bump
     )]
@@ -368,7 +373,7 @@ pub struct DataAccount {
     pub beneficiaries: Vec<Beneficiary>, // List of beneficiaries (4 + 50 * (32 + 8 + 8 + 4 + 8 + 8 + 8 + 1)) 3850
     pub decimals: u8, // Token decimals 1
     pub is_initialized: u8, // Flag to check if account is initialized 1
-    pub time_lock_end: i64, // Timestamp until which the contract is locked
+    pub time_lock_end: i64, // Timestamp until which the contract is locked 1
 }
 
 // Enum to represent errors
