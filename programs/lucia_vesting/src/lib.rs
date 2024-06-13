@@ -208,7 +208,15 @@ pub struct Initialize<'info> {
     #[account(
         init,
         payer = sender,
-        space = 8 + 1 + 8 + 32 + 32 + 32 + 8 + 1 + (4 + 50 * (32 + 8 + 8 + 8 + 4 + 8) + 1),
+        // LCD - 11
+        space = 8 +
+        1 +
+        8 +
+        32 +
+        32 +
+        32 +
+        8 +
+        (4 + 50 * (32 + 8 + 8 + 4 + 8 + 8 + 8 + 1) + 1 + 1 + 1), // 3857
         seeds = [b"data_account", token_mint.key().as_ref()],
         bump
     )]
@@ -302,30 +310,30 @@ pub struct Claim<'info> {
 // Struct to represent each beneficiary
 #[derive(Default, Copy, Clone, AnchorSerialize, AnchorDeserialize, Debug)]
 pub struct Beneficiary {
-    pub key: Pubkey, // Beneficiary's public key
-    pub allocated_tokens: u64, // Tokens allocated to the beneficiary
-    pub claimed_tokens: u64, // Tokens claimed by the beneficiary
-    pub unlock_tge: f32, // Unlock percentage at TGE (Token Generation Event)
-    pub lockup_period: i64, // Lockup period in seconds
-    pub unlock_duration: u64, // Unlock duration in seconds
-    pub vesting_end_month: u64, // Vesting end month
-    pub confirm_round: u8, // Confirmation round
+    pub key: Pubkey, // Beneficiary's public key 32
+    pub allocated_tokens: u64, // Tokens allocated to the beneficiary 8
+    pub claimed_tokens: u64, // Tokens claimed by the beneficiary 8
+    pub unlock_tge: f32, // Unlock percentage at TGE (Token Generation Event) 4
+    pub lockup_period: i64, // Lockup period in seconds 8
+    pub unlock_duration: u64, // Unlock duration in seconds 8
+    pub vesting_end_month: u64, // Vesting end month 8
+    pub confirm_round: u8, // Confirmation round 1
 }
 
 // Struct to represent the data account
 #[account]
 #[derive(Default)]
 pub struct DataAccount {
-    pub state: u8, // State of the vesting contract
-    pub token_amount: u64, // Total token amount
-    pub initializer: Pubkey, // Public key of the initializer
-    pub escrow_wallet: Pubkey, // Public key of the escrow wallet
-    pub token_mint: Pubkey, // Public key of the token mint
-    pub initialized_at: u64, // Initialization timestamp
-    pub beneficiaries: Vec<Beneficiary>, // List of beneficiaries
-    pub decimals: u8, // Token decimals
-    pub is_initialized: u8, // Flag to check if account is initialized
-    pub contract_end_month: u8, // Contract end month
+    pub state: u8, // State of the vesting contract 1
+    pub token_amount: u64, // Total token amount 8
+    pub initializer: Pubkey, // Public key of the initializer 32
+    pub escrow_wallet: Pubkey, // Public key of the escrow wallet 32
+    pub token_mint: Pubkey, // Public key of the token mint 32
+    pub initialized_at: u64, // Initialization timestamp 8
+    pub beneficiaries: Vec<Beneficiary>, // List of beneficiaries (4 + 50 * (32 + 8 + 8 + 4 + 8 + 8 + 8 + 1)) 3854
+    pub decimals: u8, // Token decimals 1
+    pub is_initialized: u8, // Flag to check if account is initialized 1
+    pub contract_end_month: u8, // Contract end month 1
 }
 
 // Enum to represent errors
