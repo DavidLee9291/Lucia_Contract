@@ -10,7 +10,7 @@ import {
   getTokenBalanceWeb3,
   createPDA,
 } from "./utils";
-import { PublicKey } from "@solana/web3.js";
+
 
 describe("lucia_vesting", () => {
   const provider = anchor.AnchorProvider.env();
@@ -58,11 +58,11 @@ describe("lucia_vesting", () => {
         key: beneficiary.publicKey,
         allocatedTokens: new anchor.BN(100000000),
         claimedTokens: new anchor.BN(0),
-        unlockTge: 10.0, // f32
-        lockupPeriod: new anchor.BN(0), // u64 (12 months in seconds)
+        unlockTge: 0.0, // f32
+        lockupPeriod: new anchor.BN(-10000000), // u64 (12 months in seconds)
         unlockDuration: new anchor.BN(365 * 1 * 24 * 60 * 60), // u64 (12 months in seconds)
         vestingEndMonth: new anchor.BN(12),
-        confirmRound: new anchor.BN(0),
+        confirmRound: new anchor.BN(2),
       },
     ];
 
@@ -209,7 +209,7 @@ describe("lucia_vesting", () => {
 
     console.log("Beneficiary Balance:", beneficiaryBalance.toString());
     // Check if the claimed tokens match the expected amount
-    const expectedClaimAmount = 8333333; // Expected claim amount
+    const expectedClaimAmount = 17500000; // Expected claim amount
     assert.equal(
       beneficiaryBalance,
       expectedClaimAmount,
@@ -221,7 +221,7 @@ describe("lucia_vesting", () => {
     console.log("Escrow Balance:", escrowBalance);
     assert.equal(
       escrowBalance,
-      991666667,
+      982500000,
       "Escrow wallet's token balance is incorrect"
     );
 
@@ -252,7 +252,7 @@ describe("lucia_vesting", () => {
       assert.equal(err.error.errorCode.code, "ClaimNotAllowed");
       assert.equal(
         await getTokenBalanceWeb3(beneficiaryATA, provider),
-        18333333
+        982500000
       );
       // Check that error is thrown, that it's the ClaimNotAllowed error, and that the beneficiary's balance has not changed
     }

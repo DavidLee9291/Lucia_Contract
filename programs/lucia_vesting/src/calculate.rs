@@ -8,7 +8,8 @@ pub fn calculate_schedule(
     confirm_round: u8
 ) -> Vec<(String, i64, f64, f64)> {
     let mut schedule = Vec::new();
-    let start_round = confirm_round as i64;
+    // LCD - 11
+    let start_round = 1;
 
     // Calculate first_time_bonus if unlock_tge is greater than 0.0
     let mut remaining_tokens = allocated_tokens;
@@ -38,11 +39,7 @@ pub fn calculate_schedule(
         let unlock_time = start_time + (unlock_duration * (i as i64)) / vesting_end_month;
 
         // Add first_time_bonus only for the first month
-        let total_claimable = if i == start_round && unlock_tge != 0.0 {
-            claimable_token + (first_time_bonus as f64)
-        } else {
-            claimable_token
-        };
+        let total_claimable = claimable_token;
 
         // Create schedule item and push to schedule vector
         let claim_token_round = format!("Round : {}", i);
@@ -52,7 +49,9 @@ pub fn calculate_schedule(
             total_claimable,
             if i == start_round { first_time_bonus as f64 } else { 0.0 },
         );
-        schedule.push(schedule_item);
+        if (confirm_round as i64) == i {
+            schedule.push(schedule_item);
+        }
     }
 
     schedule

@@ -4,7 +4,7 @@ use anchor_spl::token::{ self, Mint, Token, TokenAccount, Transfer };
 
 mod calculate;
 
-declare_id!("5ZKdCPumGbSRB7f48GKSDPhwiZzkjMMh6XBpkuHCeLm6");
+declare_id!("BYeFiky34qM2x3kKRKzzXgGVEUEXhmWDKaB9Q9XbfBB8");
 
 #[program]
 pub mod lucia_vesting {
@@ -21,16 +21,16 @@ pub mod lucia_vesting {
     ) -> Result<()> {
         let data_account: &mut Account<DataAccount> = &mut ctx.accounts.data_account;
 
-        // LCD - 05
-        if data_account.is_initialized == 1 {
-            return Err(VestingError::AlreadyInitialized.into());
-        }
+        // // LCD - 05
+        // if data_account.is_initialized == 1 {
+        //     return Err(VestingError::AlreadyInitialized.into());
+        // }
 
-        // LCD - 04
-        data_account.time_lock_end = Clock::get()?.unix_timestamp + 48 * 60 * 60;
+        // // // LCD - 04
+        // // data_account.time_lock_end = Clock::get()?.unix_timestamp + 48 * 60 * 60;
 
-        msg!("Initializing data account with amount: {}, decimals: {}", amount, decimals);
-        msg!("Beneficiaries: {:?}", beneficiaries);
+        // // msg!("Initializing data account with amount: {}, decimals: {}", amount, decimals);
+        // // msg!("Beneficiaries: {:?}", beneficiaries);
 
         // LCD - 07
         // Validate inputs
@@ -148,6 +148,7 @@ pub mod lucia_vesting {
         );
 
         let mut total_claimable_tokens: u64 = 0;
+        let mut can_claim = false;
 
         for item in schedule {
             let round_num = item.0.split(": ").nth(1).unwrap().parse::<u64>().unwrap();
@@ -183,6 +184,8 @@ pub mod lucia_vesting {
                 total_claimable_tokens = total_claimable_tokens
                     .checked_add(first_time_bonus_u64)
                     .ok_or(VestingError::Overflow)?;
+
+                can_claim = true;
             } else {
                 msg!(
                     "Tokens not claimable: {}, timestamp: {}, claimable_token: {}, first_time_bonus_token: {}",
@@ -197,6 +200,10 @@ pub mod lucia_vesting {
             if vesting_end_month == round_num && current_time > item.1 {
                 msg!("Vesting has ended, no more tokens can be claimed.");
             }
+        }
+
+        if !can_claim {
+            return Err(VestingError::ClaimNotAllowed.into());
         }
 
         if total_claimable_tokens > 0 {
