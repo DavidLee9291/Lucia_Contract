@@ -38,6 +38,7 @@ pub fn calculate_schedule(
         // Calculate unlock_time for each round
         let unlock_time = start_time + (unlock_duration * (i as i64)) / vesting_end_month;
 
+        // LDL-02
         // Add first_time_bonus only for the first month
         let total_claimable = claimable_token;
 
