@@ -157,6 +157,8 @@ pub mod lucia_vesting {
         let mut total_claimable_tokens: u64 = 0;
         let mut can_claim = false;
 
+        let confirm_round = if confirm_round == 0 { 1 } else { confirm_round };
+
         for item in schedule {
             let round_num = item.0.split(": ").nth(1).unwrap().parse::<u64>().unwrap();
 
