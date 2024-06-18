@@ -61,6 +61,15 @@ pub mod lucia_vesting {
         data_account.initialized_at = Clock::get()?.unix_timestamp as u64;
         data_account.is_initialized = 0; // Mark account as uninitialized
 
+        let confirm = &data_account.beneficiaries;
+
+        // CAL - 01
+        for beneficiary in confirm {
+            if beneficiary.confirm_round != 1 {
+                return Err(ProgramError::InvalidAccountData.into());
+            }
+        }
+
         msg!("Before state: {}", data_account.is_initialized);
 
         let transfer_instruction = Transfer {
@@ -141,15 +150,8 @@ pub mod lucia_vesting {
         }
 
         let vesting_end_month = beneficiary.vesting_end_month;
-        let confirm_round_b = beneficiary.confirm_round;
+        let confirm_round = beneficiary.confirm_round;
         let unlock_tge = beneficiary.unlock_tge;
-
-        // CAL - 01
-        let confirm_round = if confirm_round_b == 1 {
-            1
-        } else {
-            confirm_round_b
-        };
 
         // LCD - 02
         let schedule = calculate_schedule(
